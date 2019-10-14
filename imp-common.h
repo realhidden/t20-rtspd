@@ -20,7 +20,7 @@ extern "C"
 #endif
 #endif /* __cplusplus */
 
-#define SENSOR_FRAME_RATE_NUM		15
+#define SENSOR_FRAME_RATE_NUM		10
 #define SENSOR_FRAME_RATE_DEN		1
 
 #define SENSOR_JXF23
