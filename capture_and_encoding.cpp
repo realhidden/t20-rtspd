@@ -318,7 +318,7 @@ int capture_and_encoding()
 	// Then bind the previous chain which is OSD with the encoder
 	for (i = 0; i < FS_CHN_NUM; i++) {
 		if (chn[i].enable) {
-			ret = IMP_System_Bind(&osd_cell, &chn[i].imp_encoder);
+			ret = IMP_System_Bind(&osdcell, &chn[i].imp_encoder);
 			if (ret < 0) {
 				IMP_LOG_ERR(TAG, "Bind FrameSource channel%d and Encoder failed\n",i);
 				return -1;
