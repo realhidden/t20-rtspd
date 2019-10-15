@@ -28,7 +28,7 @@
 //Config File Stuff
 
 typedef struct{
-	const int* version;
+	int* version;
 } configuration;
 
 static int handler(void* user, int* version){
