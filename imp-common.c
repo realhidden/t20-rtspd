@@ -477,6 +477,7 @@ int sample_encoder_init()
 		return 1;
 	}
 	printf("Config loaded\n");
+	printf("ENCODING TYPE: %d", S_RC_METHOD);
 	
 	int S_RC_METHOD = config.ENCODING_TYPE;
 	int maxqp = config.MAXQP;
