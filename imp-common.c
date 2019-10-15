@@ -508,12 +508,12 @@ int sample_encoder_init()
             rc_attr->maxGop = 2 * rc_attr->outFrmRate.frmRateNum / rc_attr->outFrmRate.frmRateDen;
             if (S_RC_METHOD == ENC_RC_MODE_CBR) {
                 rc_attr->attrRcMode.rcMode = ENC_RC_MODE_CBR;
-                rc_attr->attrRcMode.attrH264Cbr.outBitRate = (double)8000.0 * (imp_chn_attr_tmp->picWidth * imp_chn_attr_tmp->picHeight) / (1920 * 1080);
-                rc_attr->attrRcMode.attrH264Cbr.maxQp = 25;
-                rc_attr->attrRcMode.attrH264Cbr.minQp = 10;
-                rc_attr->attrRcMode.attrH264Cbr.iBiasLvl = 0;
-                rc_attr->attrRcMode.attrH264Cbr.frmQPStep = 3;
-                rc_attr->attrRcMode.attrH264Cbr.gopQPStep = 15;
+                rc_attr->attrRcMode.attrH264Cbr.outBitRate = (double)bitrate * (imp_chn_attr_tmp->picWidth * imp_chn_attr_tmp->picHeight) / (1920 * 1080);
+                rc_attr->attrRcMode.attrH264Cbr.maxQp = maxqp;
+                rc_attr->attrRcMode.attrH264Cbr.minQp = minqp;
+                rc_attr->attrRcMode.attrH264Cbr.iBiasLvl = biaslvl;
+                rc_attr->attrRcMode.attrH264Cbr.frmQPStep = fromqpstep;
+                rc_attr->attrRcMode.attrH264Cbr.gopQPStep = gopqpstep;
                 rc_attr->attrRcMode.attrH264Cbr.adaptiveMode = false;
                 rc_attr->attrRcMode.attrH264Cbr.gopRelation = false;
 
