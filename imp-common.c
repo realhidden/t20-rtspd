@@ -477,7 +477,7 @@ int sample_encoder_init()
 		return 1;
 	}
 	printf("Config loaded\n");
-	printf("ENCODING TYPE: %d", config.ENCODING_TYPE);
+	printf("ENCODING TYPE: %d \n", config.ENCODING_TYPE);
 	
 	int S_RC_METHOD = config.ENCODING_TYPE;
 	int maxqp = config.MAXQP;
@@ -508,6 +508,7 @@ int sample_encoder_init()
             rc_attr->outFrmRate.frmRateDen = imp_chn_attr_tmp->outFrmRateDen;
             rc_attr->maxGop = 2 * rc_attr->outFrmRate.frmRateNum / rc_attr->outFrmRate.frmRateDen;
             if (S_RC_METHOD == ENC_RC_MODE_CBR) {
+				printf("CBR MODE SELECTED \n");
                 rc_attr->attrRcMode.rcMode = ENC_RC_MODE_CBR;
                 rc_attr->attrRcMode.attrH264Cbr.outBitRate = (double)bitrate * (imp_chn_attr_tmp->picWidth * imp_chn_attr_tmp->picHeight) / (1920 * 1080);
                 rc_attr->attrRcMode.attrH264Cbr.maxQp = maxqp;
@@ -526,6 +527,7 @@ int sample_encoder_init()
                 rc_attr->attrHSkip.hSkipAttr.bBlackEnhance = 0;
                 rc_attr->attrHSkip.maxHSkipType = IMP_Encoder_STYPE_N1X;
             } else if (S_RC_METHOD == ENC_RC_MODE_VBR) {
+				printf("VBR MODE SELECTED \n");
                 rc_attr->attrRcMode.rcMode = ENC_RC_MODE_VBR;
                 rc_attr->attrRcMode.attrH264Vbr.maxQp = 45;
                 rc_attr->attrRcMode.attrH264Vbr.minQp = 15;
@@ -546,6 +548,7 @@ int sample_encoder_init()
                 rc_attr->attrHSkip.hSkipAttr.bBlackEnhance = 0;
                 rc_attr->attrHSkip.maxHSkipType = IMP_Encoder_STYPE_N1X;
             } else if (S_RC_METHOD == ENC_RC_MODE_SMART) {
+				printf("SMART MODE SELECTED \n");
                 rc_attr->attrRcMode.rcMode = ENC_RC_MODE_SMART;
                 rc_attr->attrRcMode.attrH264Smart.maxQp = 25;
                 rc_attr->attrRcMode.attrH264Smart.minQp = 0;
@@ -566,6 +569,7 @@ int sample_encoder_init()
                 rc_attr->attrHSkip.hSkipAttr.bBlackEnhance = 0;
                 rc_attr->attrHSkip.maxHSkipType = IMP_Encoder_STYPE_N1X;
             } else { /* fixQp */
+				printf("Fixed QP MODE SELECTED \n");
                 rc_attr->attrRcMode.rcMode = ENC_RC_MODE_FIXQP;
                 rc_attr->attrRcMode.attrH264FixQp.qp = 42;
 
