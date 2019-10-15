@@ -994,7 +994,7 @@ typedef enum {
 	}
 	ret = IMP_ISP_Tuning_SetISPRunningMode(mode);
 	if(ret){
-		printf("IMP_ISP_Tuning_SetISPRunningMode error !\n");
+		IMP_LOG_ERR(TAG, "IMP_ISP_Tuning_SetISPRunningMode error !\n");
 		return -1;
 	}
  *
@@ -1047,7 +1047,7 @@ typedef enum {
      }
 	 ret = IMP_ISP_Tuning_SetAeStrategy(strategy);
 	if(ret){
-	printf("IMP_ISP_Tuning_SetAeStrategy error !\n");
+	IMP_LOG_ERR(TAG, "IMP_ISP_Tuning_SetAeStrategy error !\n");
 	return -1;
 	}
 *
@@ -1330,7 +1330,7 @@ int IMP_ISP_Tuning_Awb_GetCwfShift(IMPISPWB *isp_wb_attr);
  *isp_wb_attr.bgain = y;
  *IMP_ISP_Tuning_Awb_SetCwfShift(isp_wb_attr);
  if(ret){
- printf("IMP_ISP_Tuning_Awb_SetCwfShift error !\n");
+ IMP_LOG_ERR(TAG, "IMP_ISP_Tuning_Awb_SetCwfShift error !\n");
  return -1;
  }
  *
@@ -1389,7 +1389,7 @@ int IMP_ISP_Tuning_Awb_GetRgbCoefft(IMPISPCOEFFTWB *isp_core_rgb_coefft_wb_attr)
  *isp_core_rgb_coefft_wb_attr.rgb_coefft_wb_b=z;
  *IMP_ISP_Tuning_Awb_SetRgbCoefft(&isp_core_rgb_coefft_wb_attr);
  if(ret){
- printf("IMP_ISP_Tuning_Awb_SetRgbCoefft error !\n");
+ IMP_LOG_ERR(TAG, "IMP_ISP_Tuning_Awb_SetRgbCoefft error !\n");
  return -1;
  }
 */

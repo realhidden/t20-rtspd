@@ -53,7 +53,7 @@ extern "C"
  *
  *		ret = IMP_IVS_CreateGroup(grp_num);
  *		if (ret < 0) {
- *			printf("IMP_IVS_CreateGroup(%d) failed\n", grp_num);
+ *			IMP_LOG_ERR(TAG, "IMP_IVS_CreateGroup(%d) failed\n", grp_num);
  *			return -1;
  *		}
  *		return 0;
@@ -65,7 +65,7 @@ extern "C"
  *	IMPCell ivs_cell = {DEV_ID_IVS, 0, 0};
  *	ret = IMP_System_Bind(&framesource_cell, &ivs_cell);
  *	if (ret < 0) {
- *		printf("Bind FrameSource channel%d and ivs0 failed\n", IVS_FS_CHN);
+ *		IMP_LOG_ERR(TAG, "Bind FrameSource channel%d and ivs0 failed\n", IVS_FS_CHN);
  *		return -1;
  *	}
  * @endcode
@@ -74,12 +74,12 @@ extern "C"
  *	IMP_FrameSource_SetFrameDepth(0, 0);
  *	ret = sample_framesource_streamon(IVS_FS_CHN);
  *	if (ret < 0) {
- *		printf("ImpStreamOn failed\n");
+ *		IMP_LOG_ERR(TAG, "ImpStreamOn failed\n");
  *		return -1;
  *	}
  *	ret = sample_ivs_move_start(0, 0, &inteface);
  *	if (ret < 0) {
- *		printf("sample_ivs_move_start(0, 0) failed\n");
+ *		IMP_LOG_ERR(TAG, "sample_ivs_move_start(0, 0) failed\n");
  *		return -1;
  *	}
  * @endcode
@@ -91,19 +91,19 @@ extern "C"
  *	for (i = 0; i < NR_FRAMES_TO_IVS; i++) {
  *		ret = IMP_IVS_PollingResult(0, IMP_IVS_DEFAULT_TIMEOUTMS);
  *		if (ret < 0) {
- *			printf("IMP_IVS_PollingResult(%d, %d) failed\n", 0, IMP_IVS_DEFAULT_TIMEOUTMS);
+ *			IMP_LOG_ERR(TAG, "IMP_IVS_PollingResult(%d, %d) failed\n", 0, IMP_IVS_DEFAULT_TIMEOUTMS);
  *			return -1;
  *		}
  *		ret = IMP_IVS_GetResult(0, (void **)&result);
  *		if (ret < 0) {
- *			printf("IMP_IVS_GetResult(%d) failed\n", 0);
+ *			IMP_LOG_ERR(TAG, "IMP_IVS_GetResult(%d) failed\n", 0);
  *			return -1;
  *		}
  *		IMP_LOG_INFO(TAG, "frame[%d], result->ret=%d\n", i, result->ret);
  *
  *		ret = IMP_IVS_ReleaseResult(0, (void *)result);
  *		if (ret < 0) {
- *			printf("IMP_IVS_ReleaseResult(%d) failed\n", 0);
+ *			IMP_LOG_ERR(TAG, "IMP_IVS_ReleaseResult(%d) failed\n", 0);
  *			return -1;
  *		}
  *	}
