@@ -1,9 +1,3 @@
-/*
- * sample-common.c
- *
- * Copyright (C) 2014 Ingenic Semiconductor Co.,Ltd
- */
-
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
@@ -22,6 +16,7 @@
 #include <imp/imp_encoder.h>
 #include <imp/imp_isp.h>
 #include <imp/imp_osd.h>
+#include <ini.h>
 
 #include "logodata_100x100_bgra.h"
 
@@ -29,6 +24,23 @@
 #include "pwm.h"
 
 #define TAG "imp-Common"
+
+//Config File Stuff
+
+typedef struct{
+	const int* version;
+} configuration;
+
+static int handler(void* user, int* version){
+	configuration* pconfig = (configuration*)user;
+	if (MATCH("user", "version")){
+		pconfig->version = atoi(value);
+	} else {
+		return 0;
+	}
+	return 1;
+}
+
 
 static const int S_RC_METHOD = ENC_RC_MODE_CBR;
 
@@ -442,6 +454,16 @@ int sample_jpeg_init()
 
 int sample_encoder_init()
 {
+
+
+	configuration config;
+	if (ini_parse("test.ini", handler, &config) < 0){
+		printf("Can't load testini\n");
+		return 1;
+	}
+	printf("Config loaded: version=%d", config.version);
+	
+
 	int i, ret;
 	IMPEncoderAttr *enc_attr;
 	IMPEncoderRcAttr *rc_attr;

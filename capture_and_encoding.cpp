@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#include <ini.h>
+
 #include <imp/imp_isp.h>
 #include <imp/imp_system.h>
 #include <imp/imp_log.h>
