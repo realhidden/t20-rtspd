@@ -103,7 +103,7 @@ static int save_stream(int fd, IMPEncoderStream *stream)
 		ret = write(fd, (void *)stream->pack[i].virAddr,
 					stream->pack[i].length);
 		if (ret != stream->pack[i].length){
-			IMP_LOG_ERR(TAG,"stream write error:%s\n", strerror(errno));
+			printf("stream write error:%s\n", strerror(errno));
 			return -1;
 		}
 	}
