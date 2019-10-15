@@ -276,7 +276,7 @@ enum Level_ns {
  * attr.chnCnt = 1;
  * ret = IMP_AI_SetPubAttr(devID, &attr);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "Set Audio in %d attr err: %d\n", devID, ret);
+ *		printf("Set Audio in %d attr err: %d\n", devID, ret);
  *		return ret;
  * }
  * @endcode
@@ -406,7 +406,7 @@ int IMP_AI_PollingFrame(int audioDevId, int aiChn, unsigned int timeout_ms);
  * // 获取音频帧
  * ret = IMP_AI_GetFrame(devID, chnID, &frm, BLOCK);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "Audio Get Frame Data error\n");
+ *		printf("Audio Get Frame Data error\n");
  *		return ret;
  * }
  *
@@ -415,7 +415,7 @@ int IMP_AI_PollingFrame(int audioDevId, int aiChn, unsigned int timeout_ms);
  * // 释放音频帧
  * ret = IMP_AI_ReleaseFrame(devID, chnID, &frm);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "Audio release frame data error\n");
+ *		printf("Audio release frame data error\n");
  *		return ret;
  * }
  * @endcode
@@ -461,7 +461,7 @@ int IMP_AI_ReleaseFrame(int audioDevId, int aiChn, IMPAudioFrame *frm);
  * chnParam.usrFrmDepth = 20;	// the range of valid value is [2, MAX_AUDIO_FRAME_NUM].
  * ret = IMP_AI_SetChnParam(devID, chnID, &chnParam);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "set ai %d channel %d attr err: %d\n", devID, chnID, ret);
+ *		printf("set ai %d channel %d attr err: %d\n", devID, chnID, ret);
  *		return ret;
  * }
  * @endcode
@@ -833,7 +833,7 @@ int IMP_AO_DisableChn(int audioDevId, int aoChn);
  *		frm.len = size;
  *		ret = IMP_AO_SendFrame(devID, chnID, &frm, BLOCK);
  *		if(ret != 0) {
- *			IMP_LOG_ERR(TAG, "send Frame Data error\n");
+ *			printf("send Frame Data error\n");
  *			return ret;
  *		}
  * }
@@ -931,7 +931,7 @@ int IMP_AO_QueryChnStat(int audioDevId, int aoChn, IMPAudioOChnState *status);
  * attr.bufSize = 20;
  * ret = IMP_AENC_CreateChn(AeChn, &attr);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "Audio encode create channel failed\n");
+ *		printf("Audio encode create channel failed\n");
  *		return ret;
  * }
  * @endcode
@@ -983,7 +983,7 @@ int IMP_AO_QueryChnStat(int audioDevId, int aoChn, IMPAudioOChnState *status);
  *		frm.len = ret;
  *		ret = IMP_AENC_SendFrame(AeChn, &frm);
  *		if(ret != 0) {
- *			IMP_LOG_ERR(TAG, "imp audio encode send frame failed\n");
+ *			printf("imp audio encode send frame failed\n");
  *			return ret;
  *		}
  *
@@ -991,7 +991,7 @@ int IMP_AO_QueryChnStat(int audioDevId, int aoChn, IMPAudioOChnState *status);
  *		IMPAudioStream stream;
  *		ret = IMP_AENC_GetStream(AeChn, &stream, BLOCK);
  *		if(ret != 0) {
- *			IMP_LOG_ERR(TAG, "imp audio encode get stream failed\n");
+ *			printf("imp audio encode get stream failed\n");
  *			return ret;
  *		}
  *
@@ -1001,7 +1001,7 @@ int IMP_AO_QueryChnStat(int audioDevId, int aoChn, IMPAudioOChnState *status);
  *		// 释放编码码流
  *		ret = IMP_AENC_ReleaseStream(AeChn, &stream);
  *		if(ret != 0) {
- *			IMP_LOG_ERR(TAG, "imp audio encode release stream failed\n");
+ *			printf("imp audio encode release stream failed\n");
  *			return ret;
  *		}
  * }
@@ -1087,7 +1087,7 @@ int IMP_AENC_PollingStream(int AeChn, unsigned int timeout_ms);
  *
  * ret = IMP_AENC_RegisterEncoder(&handle_g711a, &my_encoder);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "IMP_AENC_RegisterEncoder failed\n");
+ *		printf("IMP_AENC_RegisterEncoder failed\n");
  *		return ret;
  * }
  *
@@ -1098,7 +1098,7 @@ int IMP_AENC_PollingStream(int AeChn, unsigned int timeout_ms);
  * attr.bufSize = 20;
  * ret = IMP_AENC_CreateChn(AeChn, &attr);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "imp audio encode create channel failed\n");
+ *		printf("imp audio encode create channel failed\n");
  *		return ret;
  * }
  * @endcode
@@ -1143,7 +1143,7 @@ int IMP_AENC_PollingStream(int AeChn, unsigned int timeout_ms);
  * attr.mode = ADEC_MODE_PACK;
  * ret = IMP_ADEC_CreateChn(adChn, &attr);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "imp audio decoder create channel failed\n");
+ *		printf("imp audio decoder create channel failed\n");
  *		return ret;
  * }
  * @endcode
@@ -1194,7 +1194,7 @@ int IMP_AENC_PollingStream(int AeChn, unsigned int timeout_ms);
  *		stream_in.len = ret;
  *		ret = IMP_ADEC_SendStream(adChn, &stream_in, BLOCK);
  *		if(ret != 0) {
- *			IMP_LOG_ERR(TAG, "imp audio encode send frame failed\n");
+ *			printf("imp audio encode send frame failed\n");
  *			return ret;
  *		}
  *
@@ -1202,7 +1202,7 @@ int IMP_AENC_PollingStream(int AeChn, unsigned int timeout_ms);
  *		IMPAudioStream stream_out;
  *		ret = IMP_ADEC_GetStream(adChn, &stream_out, BLOCK);
  *		if(ret != 0) {
- *			IMP_LOG_ERR(TAG, "imp audio decoder get stream failed\n");
+ *			printf("imp audio decoder get stream failed\n");
  *			return ret;
  *		}
  *
@@ -1212,7 +1212,7 @@ int IMP_AENC_PollingStream(int AeChn, unsigned int timeout_ms);
  *		// 释放解码后的数据
  *		ret = IMP_ADEC_ReleaseStream(adChn, &stream_out);
  *		if(ret != 0) {
- *			IMP_LOG_ERR(TAG, "imp audio decoder release stream failed\n");
+ *			printf("imp audio decoder release stream failed\n");
  *			return ret;
  *		}
  * }
@@ -1315,7 +1315,7 @@ int IMP_ADEC_ReleaseStream(int adChn,IMPAudioStream *stream);
  * // 注册解码器
  * ret = IMP_ADEC_RegisterDecoder(&handle_g711a, &my_decoder);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "IMP_ADEC_RegisterDecoder failed\n");
+ *		printf("IMP_ADEC_RegisterDecoder failed\n");
  *		return ret;
  * }
  *
@@ -1328,7 +1328,7 @@ int IMP_ADEC_ReleaseStream(int adChn,IMPAudioStream *stream);
  * // 创建解码通道
  * ret = IMP_ADEC_CreateChn(adChn, &attr);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "imp audio decoder create channel failed\n");
+ *		printf("imp audio decoder create channel failed\n");
  *		return ret;
  * }
  * @endcode
@@ -1376,7 +1376,7 @@ int IMP_ADEC_ReleaseStream(int adChn,IMPAudioStream *stream);
  * int volume = 60;
  * ret = IMP_AI_SetVol(devID, chnID, volume);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "Audio Record set volume failed\n");
+ *		printf("Audio Record set volume failed\n");
  *		return ret;
  * }
  * @endcode
@@ -1606,7 +1606,7 @@ int IMP_ADEC_ReleaseStream(int adChn,IMPAudioStream *stream);
  * // 获取音频帧和输出参考帧
  * ret = IMP_AI_GetFrameAndRef(devID, chnID, &frm, &ref, BLOCK);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "Audio Get Frame Data error\n");
+ *		printf("Audio Get Frame Data error\n");
  *		return ret;
  * }
  *
@@ -1616,7 +1616,7 @@ int IMP_ADEC_ReleaseStream(int adChn,IMPAudioStream *stream);
  * // 释放音频帧
  * ret = IMP_AI_ReleaseFrame(devID, chnID, &frm);
  * if(ret != 0) {
- *		IMP_LOG_ERR(TAG, "Audio release frame data error\n");
+ *		printf("Audio release frame data error\n");
  *		return ret;
  * }
  * @endcode

@@ -49,7 +49,7 @@ int destory()
 	/* Step.a Stream Off */
 	ret = sample_framesource_streamoff();
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "FrameSource StreamOff failed\n");
+		printf("FrameSource StreamOff failed\n");
 		return -1;
 	}
 
@@ -58,7 +58,7 @@ int destory()
 		if (chn[i].enable) {
 			ret = IMP_System_UnBind(&chn[i].framesource_chn, &chn[i].imp_encoder);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "UnBind FrameSource channel%d and Encoder failed\n",i);
+				printf("UnBind FrameSource channel%d and Encoder failed\n",i);
 				return -1;
 			}
 		}
@@ -67,27 +67,27 @@ int destory()
 	/* Step.c Encoder exit */
 	ret = sample_encoder_exit();
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "Encoder exit failed\n");
+		printf("Encoder exit failed\n");
 		return -1;
 	}
 
 	/* Step.d FrameSource exit */
 	ret = sample_framesource_exit();
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "FrameSource exit failed\n");
+		printf("FrameSource exit failed\n");
 		return -1;
 	}
 
 	/* Step.e System exit */
 	ret = sample_system_exit();
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "sample_system_exit() failed\n");
+		printf("sample_system_exit() failed\n");
 		return -1;
 	}
 
 	ret = IMP_Encoder_StopRecvPic(0);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_StopRecvPic() failed\n");
+		printf("IMP_Encoder_StopRecvPic() failed\n");
 		return -1;
 	}
 
@@ -118,14 +118,14 @@ static int get_h264_stream(int fd, int chn)
 	/* Polling H264 Stream, set timeout as 1000msec */
 	ret = IMP_Encoder_PollingStream(chn, 100);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "Polling stream timeout\n");
+		printf("Polling stream timeout\n");
 	}
 
 	IMPEncoderStream stream;
 	/* Get H264 Stream */
 	ret = IMP_Encoder_GetStream(chn, &stream, 1);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_GetStream() failed\n");
+		printf("IMP_Encoder_GetStream() failed\n");
 		return -1;
 	}
 	
@@ -146,17 +146,17 @@ void *get_stream(int fd, int chn)
 	
 	ret = IMP_Encoder_StartRecvPic(chn);
 	if (ret < 0){
-		IMP_LOG_ERR(TAG, "IMP_Encoder_StartRecvPic(%d) failed\n", 1);
+		printf("IMP_Encoder_StartRecvPic(%d) failed\n", 1);
 		return NULL;
 	}
 	ret = get_h264_stream(fd, chn);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "Get H264 stream failed\n");
+		printf("Get H264 stream failed\n");
 		return NULL;
 	}
 /*	ret = IMP_Encoder_StopRecvPic(chn);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_StopRecvPic() failed\n");
+		printf("IMP_Encoder_StopRecvPic() failed\n");
 		return NULL;
 	}
 */
@@ -172,7 +172,7 @@ static int osd_show(void)
 
         ret = IMP_OSD_ShowRgn(prHander[0], grpNum, 1);
         if (ret != 0) {
-                IMP_LOG_ERR(TAG, "IMP_OSD_ShowRgn() timeStamp error\n");
+                printf("IMP_OSD_ShowRgn() timeStamp error\n");
                 return -1;
         }
 
@@ -194,7 +194,7 @@ static void *update_thread(void *p)
 
         ret = osd_show();
         if (ret < 0) {
-                IMP_LOG_ERR(TAG, "OSD show error\n");
+                printf("OSD show error\n");
                 return NULL;
         }
 
@@ -267,14 +267,14 @@ int capture_and_encoding()
 
 	ret = sample_system_init();
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_System_Init() failed\n");
+		printf("IMP_System_Init() failed\n");
 		return -1;
 	}
 
 	/* Step.2 FrameSource init */
 	ret = sample_framesource_init();
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "FrameSource init failed\n");
+		printf("FrameSource init failed\n");
 		return -1;
 	}
 
@@ -282,7 +282,7 @@ int capture_and_encoding()
 		if (chn[i].enable) {
 			ret = IMP_Encoder_CreateGroup(chn[i].index);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_Encoder_CreateGroup(%d) error !\n", i);
+				printf("IMP_Encoder_CreateGroup(%d) error !\n", i);
 				return -1;
 			}
 		}
@@ -291,20 +291,20 @@ int capture_and_encoding()
 	/* Step.3 Encoder init */
 	ret = sample_encoder_init();
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "Encoder init failed\n");
+		printf("Encoder init failed\n");
 		return -1;
 	}
 
 	// Create the group for the OSD
 	if (IMP_OSD_CreateGroup(0) < 0) {
-			IMP_LOG_ERR(TAG, "IMP_OSD_CreateGroup(0) error !\n");
+			printf("IMP_OSD_CreateGroup(0) error !\n");
 			return -1;
 	}
 
 	// Initialize the OSD that we want to use here
 	prHander = sample_osd_init(grpNum);
 			if (prHander <= 0) {
-					IMP_LOG_ERR(TAG, "OSD init failed\n");
+					printf("OSD init failed\n");
 					return -1;
 	}
 
@@ -314,7 +314,7 @@ int capture_and_encoding()
 	IMPCell osdcell = {DEV_ID_OSD, 0, 0};
 	ret = IMP_System_Bind(&chn[0].framesource_chn, &osdcell);
 	if (ret < 0) {
-			IMP_LOG_ERR(TAG, "Bind FrameSource channel0 and OSD failed\n");
+			printf("Bind FrameSource channel0 and OSD failed\n");
 			return -1;
 	}
 	// Then bind the previous chain which is OSD with the encoder
@@ -322,7 +322,7 @@ int capture_and_encoding()
 		if (chn[i].enable) {
 			ret = IMP_System_Bind(&osdcell, &chn[i].imp_encoder);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "Bind FrameSource channel%d and Encoder failed\n",i);
+				printf("Bind FrameSource channel%d and Encoder failed\n",i);
 				return -1;
 			}
 		}
@@ -336,20 +336,20 @@ int capture_and_encoding()
 	uint32_t *timeStampData = (uint32_t *)malloc(20 * OSD_REGION_HEIGHT * OSD_REGION_WIDTH * 4);
 #endif
 	if (timeStampData == NULL) {
-			IMP_LOG_ERR(TAG, "valloc timeStampData error\n");
+			printf("valloc timeStampData error\n");
 			return -1;
 	}
 
 	ret = pthread_create(&tid, NULL, update_thread, timeStampData);
 	if (ret) {
-			IMP_LOG_ERR(TAG, "thread create error\n");
+			printf("thread create error\n");
 			return -1;
 	}
 
 	/* Step.6 Stream On */
 	ret = sample_framesource_streamon();
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "ImpStreamOn failed\n");
+		printf("ImpStreamOn failed\n");
 		return -1;
 	}
 
