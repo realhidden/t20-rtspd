@@ -596,7 +596,7 @@ int sample_encoder_init()
 			}
 		}
 	}
-
+	printf("ENCODER IS RUNNING SUCCESSFULLY! \n");
 	return 0;
 }
 
