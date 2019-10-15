@@ -456,12 +456,12 @@ int sample_encoder_init()
 {
 
 
-/* 	configuration config;
+	configuration config;
 	if (ini_parse("test.ini", handler, &config) < 0){
 		printf("Can't load testini\n");
 		return 1;
 	}
-	printf("Config loaded: version=%d", config.version); */
+	printf("Config loaded: version=%d", config.version);
 	
 
 	int i, ret;
