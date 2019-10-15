@@ -27,11 +27,11 @@
 
 //Config File Stuff
 
-/* typedef struct{
+typedef struct{
 	int version;
 } configuration;
 
-static int handler(void* user, int* version){
+static int handler(void* user, int version){
 	configuration* pconfig = (configuration*)user;
 	if (MATCH("user", "version")){
 		pconfig->version = atoi(value);
@@ -39,7 +39,7 @@ static int handler(void* user, int* version){
 		return 0;
 	}
 	return 1;
-} */
+}
 
 
 static const int S_RC_METHOD = ENC_RC_MODE_CBR;
