@@ -502,10 +502,10 @@ int sample_encoder_init()
                 rc_attr->attrHSkip.maxHSkipType = IMP_Encoder_STYPE_N1X;
             } else if (S_RC_METHOD == ENC_RC_MODE_SMART) {
                 rc_attr->attrRcMode.rcMode = ENC_RC_MODE_SMART;
-                rc_attr->attrRcMode.attrH264Smart.maxQp = 30;
+                rc_attr->attrRcMode.attrH264Smart.maxQp = 25;
                 rc_attr->attrRcMode.attrH264Smart.minQp = 15;
                 rc_attr->attrRcMode.attrH264Smart.staticTime = 2;
-                rc_attr->attrRcMode.attrH264Smart.maxBitRate = (double)5000.0 * (imp_chn_attr_tmp->picWidth * imp_chn_attr_tmp->picHeight) / (1920 * 1080);
+                rc_attr->attrRcMode.attrH264Smart.maxBitRate = (double)10000.0 * (imp_chn_attr_tmp->picWidth * imp_chn_attr_tmp->picHeight) / (1920 * 1080);
                 rc_attr->attrRcMode.attrH264Smart.iBiasLvl = 0;
                 rc_attr->attrRcMode.attrH264Smart.changePos = 80;
                 rc_attr->attrRcMode.attrH264Smart.qualityLvl = 1;
