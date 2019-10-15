@@ -31,7 +31,7 @@ typedef struct{
 	int version;
 } configuration;
 
-static int handler(void* user, int version, const char* value){
+static int handler(void* user, const char* section, const char* name, const char* value){
 	configuration* pconfig = (configuration*)user;
 	#define MATCH(s, n) strcmp(section, s) == 0 && strcmp(name, n) == 0
 	if (MATCH("user", "version")){
