@@ -33,6 +33,7 @@ typedef struct{
 
 static int handler(void* user, int version, const char* value){
 	configuration* pconfig = (configuration*)user;
+	#define MATCH(s, n) strcmp(section, s) == 0 && strcmp(name, n) == 0
 	if (MATCH("user", "version")){
 		pconfig->version = atoi(value);
 	} else {
