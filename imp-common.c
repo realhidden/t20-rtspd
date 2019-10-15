@@ -139,38 +139,38 @@ int sample_system_init()
 
 	ret = IMP_ISP_Open();
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "failed to open ISP\n");
+		printf("failed to open ISP\n");
 		return -1;
 	}
 
 	ret = IMP_ISP_AddSensor(&sensor_info);
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "failed to AddSensor\n");
+		printf("failed to AddSensor\n");
 		return -1;
 	}
 
 	ret = IMP_ISP_EnableSensor();
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "failed to EnableSensor\n");
+		printf("failed to EnableSensor\n");
 		return -1;
 	}
 
 	ret = IMP_System_Init();
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "IMP_System_Init failed\n");
+		printf("IMP_System_Init failed\n");
 		return -1;
 	}
 
 	/* enable turning, to debug graphics */
 	ret = IMP_ISP_EnableTuning();
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "IMP_ISP_EnableTuning failed\n");
+		printf("IMP_ISP_EnableTuning failed\n");
 		return -1;
 	}
 
     ret = IMP_ISP_Tuning_SetSensorFPS(SENSOR_FRAME_RATE_NUM, SENSOR_FRAME_RATE_DEN);
     if (ret < 0){
-        IMP_LOG_ERR(TAG, "failed to set sensor fps\n");
+        printf("failed to set sensor fps\n");
         return -1;
     }
 
@@ -190,24 +190,24 @@ int sample_system_exit()
 
 	ret = IMP_ISP_DisableSensor();
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "failed to EnableSensor\n");
+		printf("failed to EnableSensor\n");
 		return -1;
 	}
 
 	ret = IMP_ISP_DelSensor(&sensor_info);
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "failed to AddSensor\n");
+		printf("failed to AddSensor\n");
 		return -1;
 	}
 
 	ret = IMP_ISP_DisableTuning();
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "IMP_ISP_DisableTuning failed\n");
+		printf("IMP_ISP_DisableTuning failed\n");
 		return -1;
 	}
 
 	if(IMP_ISP_Close()){
-		IMP_LOG_ERR(TAG, "failed to open ISP\n");
+		printf("failed to open ISP\n");
 		return -1;
 	}
 
@@ -224,7 +224,7 @@ int sample_framesource_streamon()
 		if (chn[i].enable) {
 			ret = IMP_FrameSource_EnableChn(chn[i].index);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_FrameSource_EnableChn(%d) error: %d\n", ret, chn[i].index);
+				printf("IMP_FrameSource_EnableChn(%d) error: %d\n", ret, chn[i].index);
 				return -1;
 			}
 		}
@@ -238,7 +238,7 @@ int sample_framesource_ext_hsv_streamon()
 	/* Enable channels */
 	ret = IMP_FrameSource_EnableChn(2);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_FrameSource_EnableChn(%d) error: %d\n", ret, 2);
+		printf("IMP_FrameSource_EnableChn(%d) error: %d\n", ret, 2);
 		return -1;
 	}
 	return 0;
@@ -250,7 +250,7 @@ int sample_framesource_ext_bgra_streamon()
 	/* Enable channels */
 	ret = IMP_FrameSource_EnableChn(2);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_FrameSource_EnableChn(%d) error: %d\n", ret, 2);
+		printf("IMP_FrameSource_EnableChn(%d) error: %d\n", ret, 2);
 		return -1;
 	}
 	return 0;
@@ -264,7 +264,7 @@ int sample_framesource_streamoff()
 		if (chn[i].enable){
 			ret = IMP_FrameSource_DisableChn(chn[i].index);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_FrameSource_DisableChn(%d) error: %d\n", ret, chn[i].index);
+				printf("IMP_FrameSource_DisableChn(%d) error: %d\n", ret, chn[i].index);
 				return -1;
 			}
 		}
@@ -278,7 +278,7 @@ int sample_framesource_ext_hsv_streamoff()
 	/* Enable channels */
 	ret = IMP_FrameSource_DisableChn(2);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_FrameSource_DisableChn(%d) error: %d\n", ret, 2);
+		printf("IMP_FrameSource_DisableChn(%d) error: %d\n", ret, 2);
 		return -1;
 	}
 	return 0;
@@ -290,7 +290,7 @@ int sample_framesource_ext_bgra_streamoff()
 	/* Enable channels */
 	ret = IMP_FrameSource_DisableChn(2);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_FrameSource_DisableChn(%d) error: %d\n", ret, 2);
+		printf("IMP_FrameSource_DisableChn(%d) error: %d\n", ret, 2);
 		return -1;
 	}
 	return 0;
@@ -304,13 +304,13 @@ int sample_framesource_init()
 		if (chn[i].enable) {
 			ret = IMP_FrameSource_CreateChn(chn[i].index, &chn[i].fs_chn_attr);
 			if(ret < 0){
-				IMP_LOG_ERR(TAG, "IMP_FrameSource_CreateChn(chn%d) error !\n", chn[i].index);
+				printf("IMP_FrameSource_CreateChn(chn%d) error !\n", chn[i].index);
 				return -1;
 			}
 
 			ret = IMP_FrameSource_SetChnAttr(chn[i].index, &chn[i].fs_chn_attr);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_FrameSource_SetChnAttr(chn%d) error !\n",  chn[i].index);
+				printf("IMP_FrameSource_SetChnAttr(chn%d) error !\n",  chn[i].index);
 				return -1;
 			}
 		}
@@ -324,13 +324,13 @@ int sample_framesource_ext_hsv_init()
 	int ret;
 	ret = IMP_FrameSource_CreateChn(2, &chn_ext_hsv[0].fs_chn_attr);
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "IMP_FrameSource_CreateChn(chn%d) error !\n", 2);
+		printf("IMP_FrameSource_CreateChn(chn%d) error !\n", 2);
 		return -1;
 	}
 
 	ret = IMP_FrameSource_SetChnAttr(2, &chn_ext_hsv[0].fs_chn_attr);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_FrameSource_SetChnAttr(chn%d) error !\n",  2);
+		printf("IMP_FrameSource_SetChnAttr(chn%d) error !\n",  2);
 		return -1;
 	}
 	return 0;
@@ -341,13 +341,13 @@ int sample_framesource_ext_bgra_init()
 	int ret;
 	ret = IMP_FrameSource_CreateChn(2, &chn_ext_bgra[0].fs_chn_attr);
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "IMP_FrameSource_CreateChn(chn%d) error !\n", 2);
+		printf("IMP_FrameSource_CreateChn(chn%d) error !\n", 2);
 		return -1;
 	}
 
 	ret = IMP_FrameSource_SetChnAttr(2, &chn_ext_bgra[0].fs_chn_attr);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_FrameSource_SetChnAttr(chn%d) error !\n",  2);
+		printf("IMP_FrameSource_SetChnAttr(chn%d) error !\n",  2);
 		return -1;
 	}
 	return 0;
@@ -362,7 +362,7 @@ int sample_framesource_exit()
 			/*Destroy channel i*/
 			ret = IMP_FrameSource_DestroyChn(i);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_FrameSource_DestroyChn() error: %d\n", ret);
+				printf("IMP_FrameSource_DestroyChn() error: %d\n", ret);
 				return -1;
 			}
 		}
@@ -376,7 +376,7 @@ int sample_framesource_ext_hsv_exit()
 
 	ret = IMP_FrameSource_DestroyChn(2);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_FrameSource_DestroyChn() error: %d\n", ret);
+		printf("IMP_FrameSource_DestroyChn() error: %d\n", ret);
 		return -1;
 	}
 	return 0;
@@ -388,7 +388,7 @@ int sample_framesource_ext_bgra_exit()
 
 	ret = IMP_FrameSource_DestroyChn(2);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_FrameSource_DestroyChn() error: %d\n", ret);
+		printf("IMP_FrameSource_DestroyChn() error: %d\n", ret);
 		return -1;
 	}
 	return 0;
@@ -415,7 +415,7 @@ int sample_jpeg_init()
 			/* Create Channel */
 			ret = IMP_Encoder_CreateChn(2 + chn[i].index, &channel_attr);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_Encoder_CreateChn(%d) error: %d\n",
+				printf("IMP_Encoder_CreateChn(%d) error: %d\n",
 							chn[i].index, ret);
 				return -1;
 			}
@@ -423,7 +423,7 @@ int sample_jpeg_init()
 			/* Resigter Channel */
 			ret = IMP_Encoder_RegisterChn(i, 2 + chn[i].index);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_Encoder_RegisterChn(0, %d) error: %d\n",
+				printf("IMP_Encoder_RegisterChn(0, %d) error: %d\n",
 							chn[i].index, ret);
 				return -1;
 			}
@@ -474,7 +474,7 @@ int sample_encoder_init()
 	configuration config;
 	if (ini_parse("test.ini", handler, &config) < 0){
 		printf("Can't load testini\n");
-		return 1;
+		return -1;
 	}
 	printf("Config loaded\n");
 	printf("ENCODING TYPE: %d \n", config.ENCODING_TYPE);
@@ -584,13 +584,13 @@ int sample_encoder_init()
 
 			ret = IMP_Encoder_CreateChn(chn[i].index, &channel_attr);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_Encoder_CreateChn(%d) error !\n", i);
+				printf("IMP_Encoder_CreateChn(%d) error !\n", i);
 				return -1;
 			}
 
 			ret = IMP_Encoder_RegisterChn(chn[i].index, chn[i].index);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_Encoder_RegisterChn(%d, %d) error: %d\n",
+				printf("IMP_Encoder_RegisterChn(%d, %d) error: %d\n",
 						chn[i].index, chn[i].index, ret);
 				return -1;
 			}
@@ -606,7 +606,7 @@ static int encoder_chn_exit(int encChn)
 	IMPEncoderCHNStat chn_stat;
 	ret = IMP_Encoder_Query(encChn, &chn_stat);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_Query(%d) error: %d\n",
+		printf("IMP_Encoder_Query(%d) error: %d\n",
 					encChn, ret);
 		return -1;
 	}
@@ -614,14 +614,14 @@ static int encoder_chn_exit(int encChn)
 	if (chn_stat.registered) {
 		ret = IMP_Encoder_UnRegisterChn(encChn);
 		if (ret < 0) {
-			IMP_LOG_ERR(TAG, "IMP_Encoder_UnRegisterChn(%d) error: %d\n",
+			printf("IMP_Encoder_UnRegisterChn(%d) error: %d\n",
 						encChn, ret);
 			return -1;
 		}
 
 		ret = IMP_Encoder_DestroyChn(encChn);
 		if (ret < 0) {
-			IMP_LOG_ERR(TAG, "IMP_Encoder_DestroyChn(%d) error: %d\n",
+			printf("IMP_Encoder_DestroyChn(%d) error: %d\n",
 						encChn, ret);
 			return -1;
 		}
@@ -636,21 +636,21 @@ int sample_encoder_exit(void)
 
 	ret = encoder_chn_exit(ENC_H264_CHANNEL);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "Encoder Channel %d exit  error: %d\n",
+		printf("Encoder Channel %d exit  error: %d\n",
 					ENC_H264_CHANNEL, ret);
 		return -1;
 	}
 
 	ret = encoder_chn_exit(ENC_JPEG_CHANNEL);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "Encoder Channel %d exit  error: %d\n",
+		printf("Encoder Channel %d exit  error: %d\n",
 					ENC_JPEG_CHANNEL, ret);
 		return -1;
 	}
 
 	ret = IMP_Encoder_DestroyGroup(0);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_DestroyGroup(0) error: %d\n", ret);
+		printf("IMP_Encoder_DestroyGroup(0) error: %d\n", ret);
 		return -1;
 	}
 
@@ -668,56 +668,56 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 
 	prHander = malloc(4 * sizeof(IMPRgnHandle));
 	if (prHander <= 0) {
-		IMP_LOG_ERR(TAG, "malloc() error !\n");
+		printf("malloc() error !\n");
 		return NULL;
 	}
 
 	rHanderFont = IMP_OSD_CreateRgn(NULL);
 	if (rHanderFont == INVHANDLE) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_CreateRgn TimeStamp error !\n");
+		printf("IMP_OSD_CreateRgn TimeStamp error !\n");
 		return NULL;
 	}
 
 	rHanderLogo = IMP_OSD_CreateRgn(NULL);
 	if (rHanderLogo == INVHANDLE) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_CreateRgn Logo error !\n");
+		printf("IMP_OSD_CreateRgn Logo error !\n");
 		return NULL;
 	}
 
 	rHanderCover = IMP_OSD_CreateRgn(NULL);
 	if (rHanderCover == INVHANDLE) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_CreateRgn Cover error !\n");
+		printf("IMP_OSD_CreateRgn Cover error !\n");
 		return NULL;
 	}
 
 	rHanderRect = IMP_OSD_CreateRgn(NULL);
 	if (rHanderRect == INVHANDLE) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_CreateRgn Rect error !\n");
+		printf("IMP_OSD_CreateRgn Rect error !\n");
 		return NULL;
 	}
 
 
 	ret = IMP_OSD_RegisterRgn(rHanderFont, grpNum, NULL);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IVS IMP_OSD_RegisterRgn failed\n");
+		printf("IVS IMP_OSD_RegisterRgn failed\n");
 		return NULL;
 	}
 
 	ret = IMP_OSD_RegisterRgn(rHanderLogo, grpNum, NULL);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IVS IMP_OSD_RegisterRgn failed\n");
+		printf("IVS IMP_OSD_RegisterRgn failed\n");
 		return NULL;
 	}
 
 	ret = IMP_OSD_RegisterRgn(rHanderCover, grpNum, NULL);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IVS IMP_OSD_RegisterRgn failed\n");
+		printf("IVS IMP_OSD_RegisterRgn failed\n");
 		return NULL;
 	}
 
 	ret = IMP_OSD_RegisterRgn(rHanderRect, grpNum, NULL);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IVS IMP_OSD_RegisterRgn failed\n");
+		printf("IVS IMP_OSD_RegisterRgn failed\n");
 		return NULL;
 	}
 
@@ -737,14 +737,14 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 	rAttrFont.data.picData.pData = NULL;
 	ret = IMP_OSD_SetRgnAttr(rHanderFont, &rAttrFont);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_SetRgnAttr TimeStamp error !\n");
+		printf("IMP_OSD_SetRgnAttr TimeStamp error !\n");
 		return NULL;
 	}
 
 	IMPOSDGrpRgnAttr grAttrFont;
 
 	if (IMP_OSD_GetGrpRgnAttr(rHanderFont, grpNum, &grAttrFont) < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_GetGrpRgnAttr Logo error !\n");
+		printf("IMP_OSD_GetGrpRgnAttr Logo error !\n");
 		return NULL;
 
 	}
@@ -756,7 +756,7 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 	grAttrFont.fgAlhpa = 0xff;
 	grAttrFont.layer = 3;
 	if (IMP_OSD_SetGrpRgnAttr(rHanderFont, grpNum, &grAttrFont) < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_SetGrpRgnAttr Logo error !\n");
+		printf("IMP_OSD_SetGrpRgnAttr Logo error !\n");
 		return NULL;
 	}
 
@@ -773,13 +773,13 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 	rAttrLogo.data.picData.pData = logodata_100x100_bgra;
 	ret = IMP_OSD_SetRgnAttr(rHanderLogo, &rAttrLogo);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_SetRgnAttr Logo error !\n");
+		printf("IMP_OSD_SetRgnAttr Logo error !\n");
 		return NULL;
 	}
 	IMPOSDGrpRgnAttr grAttrLogo;
 
 	if (IMP_OSD_GetGrpRgnAttr(rHanderLogo, grpNum, &grAttrLogo) < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_GetGrpRgnAttr Logo error !\n");
+		printf("IMP_OSD_GetGrpRgnAttr Logo error !\n");
 		return NULL;
 
 	}
@@ -792,7 +792,7 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 	grAttrLogo.layer = 2;
 
 	if (IMP_OSD_SetGrpRgnAttr(rHanderLogo, grpNum, &grAttrLogo) < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_SetGrpRgnAttr Logo error !\n");
+		printf("IMP_OSD_SetGrpRgnAttr Logo error !\n");
 		return NULL;
 	}
 
@@ -807,13 +807,13 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 	rAttrCover.data.coverData.color = OSD_BLACK;
 	ret = IMP_OSD_SetRgnAttr(rHanderCover, &rAttrCover);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_SetRgnAttr Cover error !\n");
+		printf("IMP_OSD_SetRgnAttr Cover error !\n");
 		return NULL;
 	}
 	IMPOSDGrpRgnAttr grAttrCover;
 
 	if (IMP_OSD_GetGrpRgnAttr(rHanderCover, grpNum, &grAttrCover) < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_GetGrpRgnAttr Cover error !\n");
+		printf("IMP_OSD_GetGrpRgnAttr Cover error !\n");
 		return NULL;
 
 	}
@@ -825,7 +825,7 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 	grAttrCover.fgAlhpa = 0x7f;
 	grAttrCover.layer = 2;
 	if (IMP_OSD_SetGrpRgnAttr(rHanderCover, grpNum, &grAttrCover) < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_SetGrpRgnAttr Cover error !\n");
+		printf("IMP_OSD_SetGrpRgnAttr Cover error !\n");
 		return NULL;
 	}
 
@@ -842,13 +842,13 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 	rAttrRect.data.lineRectData.linewidth = 5;
 	ret = IMP_OSD_SetRgnAttr(rHanderRect, &rAttrRect);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_SetRgnAttr Rect error !\n");
+		printf("IMP_OSD_SetRgnAttr Rect error !\n");
 		return NULL;
 	}
 	IMPOSDGrpRgnAttr grAttrRect;
 
 	if (IMP_OSD_GetGrpRgnAttr(rHanderRect, grpNum, &grAttrRect) < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_GetGrpRgnAttr Rect error !\n");
+		printf("IMP_OSD_GetGrpRgnAttr Rect error !\n");
 		return NULL;
 
 	}
@@ -858,14 +858,14 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 	grAttrRect.scalex = 1;
 	grAttrRect.scaley = 1;
 	if (IMP_OSD_SetGrpRgnAttr(rHanderRect, grpNum, &grAttrRect) < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_SetGrpRgnAttr Rect error !\n");
+		printf("IMP_OSD_SetGrpRgnAttr Rect error !\n");
 		return NULL;
 	}
 
 
 	ret = IMP_OSD_Start(grpNum);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_Start TimeStamp, Logo, Cover and Rect error !\n");
+		printf("IMP_OSD_Start TimeStamp, Logo, Cover and Rect error !\n");
 		return NULL;
 	}
 
@@ -882,43 +882,43 @@ int sample_osd_exit(IMPRgnHandle *prHander,int grpNum)
 
 	ret = IMP_OSD_ShowRgn(prHander[0], grpNum, 0);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_ShowRgn close timeStamp error\n");
+		printf("IMP_OSD_ShowRgn close timeStamp error\n");
 	}
 
 	ret = IMP_OSD_ShowRgn(prHander[1], grpNum, 0);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_ShowRgn close Logo error\n");
+		printf("IMP_OSD_ShowRgn close Logo error\n");
 	}
 
 	ret = IMP_OSD_ShowRgn(prHander[2], grpNum, 0);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_ShowRgn close cover error\n");
+		printf("IMP_OSD_ShowRgn close cover error\n");
 	}
 
 	ret = IMP_OSD_ShowRgn(prHander[3], grpNum, 0);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_ShowRgn close Rect error\n");
+		printf("IMP_OSD_ShowRgn close Rect error\n");
 	}
 
 
 	ret = IMP_OSD_UnRegisterRgn(prHander[0], grpNum);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_UnRegisterRgn timeStamp error\n");
+		printf("IMP_OSD_UnRegisterRgn timeStamp error\n");
 	}
 
 	ret = IMP_OSD_UnRegisterRgn(prHander[1], grpNum);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_UnRegisterRgn logo error\n");
+		printf("IMP_OSD_UnRegisterRgn logo error\n");
 	}
 
 	ret = IMP_OSD_UnRegisterRgn(prHander[2], grpNum);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_UnRegisterRgn Cover error\n");
+		printf("IMP_OSD_UnRegisterRgn Cover error\n");
 	}
 
 	ret = IMP_OSD_UnRegisterRgn(prHander[3], grpNum);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_UnRegisterRgn Rect error\n");
+		printf("IMP_OSD_UnRegisterRgn Rect error\n");
 	}
 
 
@@ -929,7 +929,7 @@ int sample_osd_exit(IMPRgnHandle *prHander,int grpNum)
 
 	ret = IMP_OSD_DestroyGroup(grpNum);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_OSD_DestroyGroup(0) error\n");
+		printf("IMP_OSD_DestroyGroup(0) error\n");
 		return -1;
 	}
 	free(prHander);
@@ -946,7 +946,7 @@ static int save_stream(int fd, IMPEncoderStream *stream)
 		ret = write(fd, (void *)stream->pack[i].virAddr,
 					stream->pack[i].length);
 		if (ret != stream->pack[i].length) {
-			IMP_LOG_ERR(TAG, "stream write error:%s\n", strerror(errno));
+			printf("stream write error:%s\n", strerror(errno));
 			return -1;
 		}
 		//IMP_LOG_DBG(TAG, "stream->pack[%d].dataType=%d\n", i, ((int)stream->pack[i].dataType.h264Type));
@@ -962,7 +962,7 @@ int sample_do_get_h264_stream(int nr_frames)
 	/* H264 Channel start receive picture */
 	ret = IMP_Encoder_StartRecvPic(ENC_H264_CHANNEL);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_StartRecvPic(%d) failed\n", ENC_H264_CHANNEL);
+		printf("IMP_Encoder_StartRecvPic(%d) failed\n", ENC_H264_CHANNEL);
 		return -1;
 	}
 
@@ -980,7 +980,7 @@ int sample_do_get_h264_stream(int nr_frames)
 	IMP_LOG_INFO(TAG, "Open Stream file %s ", stream_path);
 	int stream_fd = open(stream_path, O_RDWR | O_CREAT | O_TRUNC, 0777);
 	if (stream_fd < 0) {
-		IMP_LOG_ERR(TAG, "failed: %s\n", strerror(errno));
+		printf("failed: %s\n", strerror(errno));
 		return -1;
 	}
 	IMP_LOG_INFO(TAG, "OK\n");
@@ -990,7 +990,7 @@ int sample_do_get_h264_stream(int nr_frames)
 		/* Polling H264 Stream, set timeout as 1000msec */
 		ret = IMP_Encoder_PollingStream(ENC_H264_CHANNEL, 1000);
 		if (ret < 0) {
-			IMP_LOG_ERR(TAG, "Polling stream timeout\n");
+			printf("Polling stream timeout\n");
 			continue;
 		}
 
@@ -998,7 +998,7 @@ int sample_do_get_h264_stream(int nr_frames)
 		/* Get H264 Stream */
 		ret = IMP_Encoder_GetStream(ENC_H264_CHANNEL, &stream, 1);
 		if (ret < 0) {
-			IMP_LOG_ERR(TAG, "IMP_Encoder_GetStream() failed\n");
+			printf("IMP_Encoder_GetStream() failed\n");
 			return -1;
 		}
 
@@ -1015,7 +1015,7 @@ int sample_do_get_h264_stream(int nr_frames)
 
 	ret = IMP_Encoder_StopRecvPic(ENC_H264_CHANNEL);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_StopRecvPic() failed\n");
+		printf("IMP_Encoder_StopRecvPic() failed\n");
 		return -1;
 	}
 
@@ -1029,7 +1029,7 @@ int sample_do_get_jpeg_snap(void)
 	/* JEPG Channel start receive picture */
 	ret = IMP_Encoder_StartRecvPic(ENC_JPEG_CHANNEL);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_StartRecvPic(%d) failed\n", ENC_JPEG_CHANNEL);
+		printf("IMP_Encoder_StartRecvPic(%d) failed\n", ENC_JPEG_CHANNEL);
 		return -1;
 	}
 
@@ -1044,10 +1044,10 @@ int sample_do_get_jpeg_snap(void)
 	sprintf(snap_path, "%s/snap-%s.jpg",
 			SNAP_FILE_PATH_PREFIX, now_str);
 
-	IMP_LOG_ERR(TAG, "Open Snap file %s ", snap_path);
+	printf("Open Snap file %s ", snap_path);
 	int snap_fd = open(snap_path, O_RDWR | O_CREAT | O_TRUNC, 0777);
 	if (snap_fd < 0) {
-		IMP_LOG_ERR(TAG, "failed: %s\n", strerror(errno));
+		printf("failed: %s\n", strerror(errno));
 		return -1;
 	}
 	IMP_LOG_DBG(TAG, "OK\n");
@@ -1055,7 +1055,7 @@ int sample_do_get_jpeg_snap(void)
 	/* Polling JPEG Snap, set timeout as 1000msec */
 	ret = IMP_Encoder_PollingStream(ENC_JPEG_CHANNEL, 1000);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "Polling stream timeout\n");
+		printf("Polling stream timeout\n");
 		return -1;
 	}
 
@@ -1063,7 +1063,7 @@ int sample_do_get_jpeg_snap(void)
 	/* Get JPEG Snap */
 	ret = IMP_Encoder_GetStream(ENC_JPEG_CHANNEL, &stream, 1);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_GetStream() failed\n");
+		printf("IMP_Encoder_GetStream() failed\n");
 		return -1;
 	}
 
@@ -1079,7 +1079,7 @@ int sample_do_get_jpeg_snap(void)
 
 	ret = IMP_Encoder_StopRecvPic(ENC_JPEG_CHANNEL);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_StopRecvPic() failed\n");
+		printf("IMP_Encoder_StopRecvPic() failed\n");
 		return -1;
 	}
 
@@ -1095,7 +1095,7 @@ void *get_h264_stream(void *args)
 
 	ret = IMP_Encoder_StartRecvPic(i);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_StartRecvPic(%d) failed\n", i);
+		printf("IMP_Encoder_StartRecvPic(%d) failed\n", i);
 		return ((void *)-1);
 	}
 
@@ -1105,7 +1105,7 @@ void *get_h264_stream(void *args)
 	IMP_LOG_DBG(TAG, "Open Stream file %s ", stream_path);
 	int stream_fd = open(stream_path, O_RDWR | O_CREAT | O_TRUNC, 0777);
 	if (stream_fd < 0) {
-		IMP_LOG_ERR(TAG, "failed: %s\n", strerror(errno));
+		printf("failed: %s\n", strerror(errno));
 		return ((void *)-1);
 	}
 	IMP_LOG_DBG(TAG, "OK\n");
@@ -1113,7 +1113,7 @@ void *get_h264_stream(void *args)
 	for (j = 0; j < NR_FRAMES_TO_SAVE; j++) {
 		ret = IMP_Encoder_PollingStream(i, 1000);
 		if (ret < 0) {
-			IMP_LOG_ERR(TAG, "Polling stream timeout\n");
+			printf("Polling stream timeout\n");
 			continue;
 		}
 
@@ -1121,7 +1121,7 @@ void *get_h264_stream(void *args)
 		/* Get H264 Stream */
 		ret = IMP_Encoder_GetStream(i, &stream, 1);
 		if (ret < 0) {
-			IMP_LOG_ERR(TAG, "IMP_Encoder_GetStream() failed\n");
+			printf("IMP_Encoder_GetStream() failed\n");
 			return ((void *)-1);
 		}
 		//IMP_LOG_DBG(TAG, "i=%d, stream.packCount=%d, stream.h264RefType=%d\n", i, stream.packCount, stream.h264RefType);
@@ -1139,7 +1139,7 @@ void *get_h264_stream(void *args)
 
 	ret = IMP_Encoder_StopRecvPic(i);
 	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_StopRecvPic() failed\n");
+		printf("IMP_Encoder_StopRecvPic() failed\n");
 		return ((void *)-1);
 	}
 
@@ -1156,7 +1156,7 @@ int sample_get_h264_stream()
 		if (chn[i].enable) {
 			ret = pthread_create(&tid[i], NULL, get_h264_stream, &chn[i].index);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "Create Chn%d get_h264_stream \n",chn[i].index);
+				printf("Create Chn%d get_h264_stream \n",chn[i].index);
 			}
 		}
 	}
@@ -1179,17 +1179,17 @@ int sample_get_jpeg_snap()
 		if (chn[i].enable) {
 			ret = IMP_Encoder_StartRecvPic(2 + chn[i].index);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_Encoder_StartRecvPic(%d) failed\n", 2 + chn[i].index);
+				printf("IMP_Encoder_StartRecvPic(%d) failed\n", 2 + chn[i].index);
 				return -1;
 			}
 
 			sprintf(snap_path, "%s/snap-%d.jpg",
 					SNAP_FILE_PATH_PREFIX, chn[i].index);
 
-			IMP_LOG_ERR(TAG, "Open Snap file %s ", snap_path);
+			printf("Open Snap file %s ", snap_path);
 			int snap_fd = open(snap_path, O_RDWR | O_CREAT | O_TRUNC, 0777);
 			if (snap_fd < 0) {
-				IMP_LOG_ERR(TAG, "failed: %s\n", strerror(errno));
+				printf("failed: %s\n", strerror(errno));
 				return -1;
 			}
 			IMP_LOG_DBG(TAG, "OK\n");
@@ -1197,7 +1197,7 @@ int sample_get_jpeg_snap()
 			/* Polling JPEG Snap, set timeout as 1000msec */
 			ret = IMP_Encoder_PollingStream(2 + chn[i].index, 1000);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "Polling stream timeout\n");
+				printf("Polling stream timeout\n");
 				continue;
 			}
 
@@ -1205,7 +1205,7 @@ int sample_get_jpeg_snap()
 			/* Get JPEG Snap */
 			ret = IMP_Encoder_GetStream(chn[i].index + 2, &stream, 1);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_Encoder_GetStream() failed\n");
+				printf("IMP_Encoder_GetStream() failed\n");
 				return -1;
 			}
 
@@ -1221,7 +1221,7 @@ int sample_get_jpeg_snap()
 
 			ret = IMP_Encoder_StopRecvPic(2 + chn[i].index);
 			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_Encoder_StopRecvPic() failed\n");
+				printf("IMP_Encoder_StopRecvPic() failed\n");
 				return -1;
 			}
 		}

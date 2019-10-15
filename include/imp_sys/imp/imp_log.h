@@ -139,7 +139,7 @@ int  IMP_Log_Get_Option(void);
  * @def IMP_LOG_ERR
  * ERROR等級打印接口
  */
-#define IMP_LOG_ERR(tag, fmt, ...)		IMP_LOG(tag, IMP_LOG_LEVEL_ERROR, IMP_LOG_GET_OPTION, fmt, ##__VA_ARGS__)
+#define printf(fmt, ...)		IMP_LOG(tag, IMP_LOG_LEVEL_ERROR, IMP_LOG_GET_OPTION, fmt, ##__VA_ARGS__)
 /**
  * @def IMP_LOG_FATAL
  * FATAL等級打印接口
