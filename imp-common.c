@@ -31,7 +31,7 @@ typedef struct{
 	int version;
 } configuration;
 
-static int handler(void* user, int version){
+static int handler(void* user, int version, const char* value){
 	configuration* pconfig = (configuration*)user;
 	if (MATCH("user", "version")){
 		pconfig->version = atoi(value);
