@@ -25,26 +25,6 @@
 
 #define TAG "imp-Common"
 
-//Config File Stuff
-
-typedef struct{
-	int version;
-} configuration;
-
-static int handler(void* user, const char* section, const char* name, const char* value){
-	configuration* pconfig = (configuration*)user;
-	#define MATCH(s, n) strcmp(section, s) == 0 && strcmp(name, n) == 0
-	if (MATCH("user", "version")){
-		pconfig->version = atoi(value);
-	} else {
-		return 0;
-	}
-	return 1;
-}
-
-
-static const int S_RC_METHOD = ENC_RC_MODE_CBR;
-
 struct chn_conf chn[FS_CHN_NUM] = {
 	{
 		.index = CH0_INDEX,
@@ -453,17 +433,58 @@ int sample_jpeg_init()
 	return 0;
 }
 
+//Config File Stuff
+
+typedef struct{
+	int ENCODING_TYPE;
+	int MAXQP;
+	int MINQP;
+	int BIASLVL;
+	int FROMQPSTEP;
+	int GOPQPSTEP;
+	double BITRATE;
+} configuration;
+
+static int handler(void* user, const char* section, const char* name, const char* value){
+	configuration* pconfig = (configuration*)user;
+	#define MATCH(s, n) strcmp(section, s) == 0 && strcmp(name, n) == 0
+	if (MATCH("user", "ENCODING_TYPE")){
+		pconfig->ENCODING_TYPE = atoi(value);
+	} else if (MATCH("user", "MAXQP")){
+		pconfig->MAXQP  = atoi(value);
+	} else if (MATCH("user", "MINQP")){
+		pconfig->MINQP  = atoi(value);
+	} else if (MATCH("user", "BIASLVL")){
+		pconfig->BIASLVL  = atoi(value);
+	} else if (MATCH("user", "FROMQPSTEP")){
+		pconfig->FROMQPSTEP  = atoi(value);
+	} else if (MATCH("user", "GOPQPSTEP")){
+		pconfig->GOPQPSTEP  = atoi(value);
+	} else if (MATCH("user", "BITRATE")){
+		pconfig->BITRATE  = atoi(value);
+	} else {
+		return 0;
+	}
+	return 1;
+}
+
 int sample_encoder_init()
 {
-
 
 	configuration config;
 	if (ini_parse("test.ini", handler, &config) < 0){
 		printf("Can't load testini\n");
 		return 1;
 	}
-	printf("Config loaded: version=%d", config.version);
+	printf("Config loaded\n");
 	
+	int S_RC_METHOD = config.ENCODING_TYPE;
+	int maxqp = config.MAXQP;
+	int minqp = config.MINQP;
+	int biaslvl = config.BIASLVL;
+	int fromqpstep = config.FROMQPSTEP;
+	int gopqpstep = config.GOPQPSTEP;
+	double bitrate = config.BITRATE;
 
 	int i, ret;
 	IMPEncoderAttr *enc_attr;
