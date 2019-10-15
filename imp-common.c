@@ -30,7 +30,7 @@
 
 #define TAG "imp-Common"
 
-static const int S_RC_METHOD = ENC_RC_MODE_SMART;
+static const int S_RC_METHOD = ENC_RC_MODE_CBR;
 
 struct chn_conf chn[FS_CHN_NUM] = {
 	{
@@ -464,9 +464,9 @@ int sample_encoder_init()
             rc_attr->maxGop = 2 * rc_attr->outFrmRate.frmRateNum / rc_attr->outFrmRate.frmRateDen;
             if (S_RC_METHOD == ENC_RC_MODE_CBR) {
                 rc_attr->attrRcMode.rcMode = ENC_RC_MODE_CBR;
-                rc_attr->attrRcMode.attrH264Cbr.outBitRate = (double)2000.0 * (imp_chn_attr_tmp->picWidth * imp_chn_attr_tmp->picHeight) / (1280 * 720);
-                rc_attr->attrRcMode.attrH264Cbr.maxQp = 45;
-                rc_attr->attrRcMode.attrH264Cbr.minQp = 15;
+                rc_attr->attrRcMode.attrH264Cbr.outBitRate = (double)8000.0 * (imp_chn_attr_tmp->picWidth * imp_chn_attr_tmp->picHeight) / (1920 * 1080);
+                rc_attr->attrRcMode.attrH264Cbr.maxQp = 25;
+                rc_attr->attrRcMode.attrH264Cbr.minQp = 10;
                 rc_attr->attrRcMode.attrH264Cbr.iBiasLvl = 0;
                 rc_attr->attrRcMode.attrH264Cbr.frmQPStep = 3;
                 rc_attr->attrRcMode.attrH264Cbr.gopQPStep = 15;
