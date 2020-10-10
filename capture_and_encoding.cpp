@@ -37,6 +37,8 @@ extern int IMP_OSD_SetPoolSize(int newPoolSize);
 extern int IMP_Encoder_SetPoolSize(int newPoolSize0);
 }
 
+//#define ENABLED_OSD 1
+
 int grpNum = 0;
 IMPRgnHandle *prHander;
 
@@ -259,10 +261,12 @@ int capture_and_encoding()
 	int i = 0;
 
 	
-	printf(">>>>>caputre_and_encoding start\n");
+	printf(">>>>>capture_and_encoding start\n");
 
 	// undocumented functions to increase pool size
+#ifdef ENABLED_OSD
 	IMP_OSD_SetPoolSize(0x64000);
+#endif
 	IMP_Encoder_SetPoolSize(0x100000);
 
 	ret = sample_system_init();
@@ -295,6 +299,7 @@ int capture_and_encoding()
 		return -1;
 	}
 
+#ifdef ENABLED_OSD
 	// Create the group for the OSD
 	if (IMP_OSD_CreateGroup(0) < 0) {
 			printf("IMP_OSD_CreateGroup(0) error !\n");
@@ -345,6 +350,18 @@ int capture_and_encoding()
 			printf("thread create error\n");
 			return -1;
 	}
+#else
+    // bind without OST
+    for (i = 0; i < FS_CHN_NUM; i++) {
+    		if (chn[i].enable) {
+                ret = IMP_System_Bind(&chn[0].framesource_chn, &chn[i].imp_encoder);
+                if (ret < 0) {
+                        printf("Bind FrameSource channel0 and Encoder failed\n");
+                        return -1;
+                }
+            }
+    }
+#endif
 
 	/* Step.6 Stream On */
 	ret = sample_framesource_streamon();
