@@ -443,6 +443,8 @@ typedef struct{
 	int FROMQPSTEP;
 	int GOPQPSTEP;
 	double BITRATE;
+	int WIDTH;
+	int HEIGHT;
 } configuration;
 
 static int handler(void* user, const char* section, const char* name, const char* value){
@@ -460,7 +462,11 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->FROMQPSTEP  = atoi(value);
 	} else if (MATCH("user", "GOPQPSTEP")){
 		pconfig->GOPQPSTEP  = atoi(value);
-	} else if (MATCH("user", "BITRATE")){
+	} else if (MATCH("user", "WIDTH")){
+      	pconfig->WIDTH  = atoi(value);
+    } else if (MATCH("user", "HEIGHT")){
+        pconfig->HEIGHT  = atoi(value);
+    } else if (MATCH("user", "BITRATE")){
 		pconfig->BITRATE  = atoi(value);
 	} else {
 		return 0;
@@ -486,6 +492,8 @@ int sample_encoder_init()
 	int fromqpstep = config.FROMQPSTEP;
 	int gopqpstep = config.GOPQPSTEP;
 	double bitrate = config.BITRATE;
+	int width = config.WIDTH;
+	int height = config.HEIGHT;
 
 	int i, ret;
 	IMPEncoderAttr *enc_attr;
@@ -496,6 +504,8 @@ int sample_encoder_init()
 	for (i = 0; i <  FS_CHN_NUM; i++) {
 		if (chn[i].enable) {
 			imp_chn_attr_tmp = &chn[i].fs_chn_attr;
+			imp_chn_attr_tmp->picWidth = width;
+			imp_chn_attr_tmp->picHeight = height;
 			memset(&channel_attr, 0, sizeof(IMPEncoderCHNAttr));
 			enc_attr = &channel_attr.encAttr;
 			enc_attr->enType = PT_H264;
