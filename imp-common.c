@@ -445,6 +445,9 @@ typedef struct{
 	double BITRATE;
 	int WIDTH;
 	int HEIGHT;
+	int RATENUM;
+	int RATEDEN;
+	int PROFILE;
 } configuration;
 
 static int handler(void* user, const char* section, const char* name, const char* value){
@@ -466,6 +469,12 @@ static int handler(void* user, const char* section, const char* name, const char
       	pconfig->WIDTH  = atoi(value);
     } else if (MATCH("user", "HEIGHT")){
         pconfig->HEIGHT  = atoi(value);
+    } else if (MATCH("user", "RATENUM")){
+        pconfig->RATENUM  = atoi(value);
+    } else if (MATCH("user", "RATEDEN")){
+        pconfig->RATEDEN  = atoi(value);
+    } else if (MATCH("user", "PROFILE")){
+        pconfig->PROFILE  = atoi(value);
     } else if (MATCH("user", "BITRATE")){
 		pconfig->BITRATE  = atoi(value);
 	} else {
@@ -494,6 +503,9 @@ int sample_encoder_init()
 	double bitrate = config.BITRATE;
 	int width = config.WIDTH;
 	int height = config.HEIGHT;
+    int rateNum = config.RATENUM;
+    int rateDen = config.RATEDEN;
+    int profile = config.PROFILE;
 
 	int i, ret;
 	IMPEncoderAttr *enc_attr;
@@ -504,13 +516,24 @@ int sample_encoder_init()
 	for (i = 0; i <  FS_CHN_NUM; i++) {
 		if (chn[i].enable) {
 			imp_chn_attr_tmp = &chn[i].fs_chn_attr;
-			imp_chn_attr_tmp->picWidth = width;
-			imp_chn_attr_tmp->picHeight = height;
+			printf("\t - channel %d enabled\n", i);
+			printf("\t\tdefault width %d height %d\n", imp_chn_attr_tmp->picWidth, imp_chn_attr_tmp->picHeight);
+			if (width != 0 && height != 0){
+			    imp_chn_attr_tmp->picWidth = width;
+			    imp_chn_attr_tmp->picHeight = height;
+			    printf("\t\toverride width %d height %d\n", width, height);
+			}
+			printf("\t\tdefault rate %d/%d\n", imp_chn_attr_tmp->outFrmRateNum, imp_chn_attr_tmp->outFrmRateDen);
+            if (rateDen != 0 && rateNum != 0){
+                imp_chn_attr_tmp->outFrmRateNum = rateNum;
+                imp_chn_attr_tmp->outFrmRateDen = rateDen;
+                printf("\t\toverride rate %d/%d\n", rateNum, rateDen);
+            }
 			memset(&channel_attr, 0, sizeof(IMPEncoderCHNAttr));
 			enc_attr = &channel_attr.encAttr;
 			enc_attr->enType = PT_H264;
 			enc_attr->bufSize = 0;
-			enc_attr->profile = 1;
+			enc_attr->profile = profile;
 			enc_attr->picWidth = imp_chn_attr_tmp->picWidth;
 			enc_attr->picHeight = imp_chn_attr_tmp->picHeight;
 			rc_attr = &channel_attr.rcAttr;
