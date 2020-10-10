@@ -128,7 +128,7 @@ int main(int argc, char** argv) {
 		// "ServerMediaSubsession" objects for each audio/video substream.
 
 		// A H.264 video elementary stream:
-		char const* streamName = "stream";
+		char const* streamName = "unicast";
 		ServerMediaSession* sms
 		  = ServerMediaSession::createNew(*env, streamName, streamName,
 					      descriptionString);
