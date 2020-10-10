@@ -38,6 +38,7 @@ extern int IMP_Encoder_SetPoolSize(int newPoolSize0);
 }
 
 //#define ENABLED_OSD 1
+//#define NIGHTMODE_SWITCH 1
 
 int grpNum = 0;
 IMPRgnHandle *prHander;
@@ -370,6 +371,15 @@ int capture_and_encoding()
 		return -1;
 	}
 
+
+	// start thread for activating night mode & IR cut filter
+#ifdef NIGHTMODE_SWITCH
+    printf("Night mode switch on\n");
+	pthread_t thread_info;
+	pthread_create(&thread_info, NULL, sample_soft_photosensitive_ctrl, NULL);
+#else
+    printf("Night mode switch off\n");
+#endif
 
 	return 0;
 }

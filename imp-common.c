@@ -1262,6 +1262,26 @@ int sample_get_jpeg_snap()
 	return 0;
 }
 
+int sample_set_IRLED(int enable)
+{
+	int fd1;
+	fd1 = open("/sys/class/gpio/gpio49/value", O_RDWR);
+	if (fd1 < 0) {
+		IMP_LOG_DBG(TAG, "open gpio 49 error !");
+		return -1;
+	}
+	if (enable) {
+		write(fd1, "0", 1);
+	} else {
+		write(fd1, "1", 1);
+	}
+	close(fd1);
+
+	//needs time to adjust
+    usleep(5000*1000);
+	return 0;
+}
+
 int sample_set_IRCUT(int enable)
 {
 	int fd1, fd2;
@@ -1288,6 +1308,9 @@ int sample_set_IRCUT(int enable)
 
 	close(fd1);
 	close(fd2);
+
+	//needs time to adjust
+	usleep(5000*1000);
 	return 0;
 }
 
@@ -1305,7 +1328,7 @@ static int  g_soft_ps_running = 1;
 void *sample_soft_photosensitive_ctrl(void *p)
 {
 	int i = 0;
-	int evDebugCount = 0;
+	int evDebugCount = 10000;
 	char tmstr[16];
 	int avgExp;
 	IMPISPRunningMode pmode;
@@ -1333,7 +1356,7 @@ void *sample_soft_photosensitive_ctrl(void *p)
 		int ret = IMP_ISP_Tuning_GetEVAttr(&expAttr);
 		if (ret == 0) {
 			if (evDebugCount > 0) {
-				IMP_LOG_DBG(TAG, "EV attr: exp %d aGain %d dGain %d\n",
+				printf("EV attr: exp %d aGain %d dGain %d\n",
 						expAttr.ev, expAttr.again, expAttr.dgain);
 				evDebugCount--;
 			}
@@ -1354,22 +1377,20 @@ void *sample_soft_photosensitive_ctrl(void *p)
 
 		if (avgExp > 1900000) {
 			if (pmode != IMPISP_RUNNING_MODE_NIGHT) {
-				IMP_LOG_INFO(TAG, "[%s] avg exp is %d. switching to night mode\n",
+				printf("[%s] avg exp is %d. switching to night mode\n",
 						get_curr_timestr((char *) &tmstr), avgExp);
 				evDebugCount = 10; // start logging 10s of EV data
 
 				IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_NIGHT);
-				IMP_ISP_Tuning_SetSensorFPS(10, SENSOR_FRAME_RATE_DEN);
 				sample_set_IRCUT(1);
 			}
 		} else if (avgExp < 479832) {
 			if (pmode != IMPISP_RUNNING_MODE_DAY) {
-				IMP_LOG_INFO(TAG, "[%s] avg exp is %d. switching to day mode\n",
+				printf("[%s] avg exp is %d. switching to day mode\n",
 						get_curr_timestr((char *) &tmstr), avgExp);
 				evDebugCount = 10; // start logging 10s of EV data
 
 				IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_DAY);
-				IMP_ISP_Tuning_SetSensorFPS(SENSOR_FRAME_RATE_NUM, SENSOR_FRAME_RATE_DEN);
 				sample_set_IRCUT(0);
 			}
 		}
@@ -1378,7 +1399,7 @@ void *sample_soft_photosensitive_ctrl(void *p)
 		if (avgExp > 3000000) {
 			// only log for first time
 			if (! ir_leds_active) {
-				IMP_LOG_INFO(TAG, "[%s] avg exp is %d. turning on IR LEDs\n",
+				printf("[%s] avg exp is %d. turning on IR LEDs\n",
 						get_curr_timestr((char *) &tmstr), avgExp);
 				evDebugCount = 10; // start logging 10s of EV data
 			}
@@ -1389,14 +1410,16 @@ void *sample_soft_photosensitive_ctrl(void *p)
 			if (level > pwm_cfg.period)
 				level = pwm_cfg.period;
 
-			pwm_set_duty(pwm_cfg.channel, level);
+			//pwm_set_duty(pwm_cfg.channel, level);
+			sample_set_IRLED(1);
 			ir_leds_active = 1;
 		} else if (ir_leds_active) {
-			IMP_LOG_INFO(TAG, "[%s] avg exp is %d. turning off IR LEDs\n",
+			printf("[%s] avg exp is %d. turning off IR LEDs\n",
 						get_curr_timestr((char *) &tmstr), avgExp);
 			evDebugCount = 10; // start logging 10s of EV data
 
-			pwm_set_duty(pwm_cfg.channel, 0);
+			//pwm_set_duty(pwm_cfg.channel, 0);
+			sample_set_IRLED(0);
 			ir_leds_active = 0;
 		}
 
