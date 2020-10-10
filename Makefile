@@ -43,7 +43,6 @@ $(APP):
 $(APP): $(LINK_OBJ)
 	$(LINK)$@  $(LINK_OBJ)  $(LIBS) $(CONSOLE_LINK_OPTS)
 	$(STRIP) -s $@
-	cp $(APP) ~/tftproot/
 
 clean:
 	-rm -rf *.$(OBJ) $(APP) core *.core *~ include/*~ version.h

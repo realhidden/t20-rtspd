@@ -19,7 +19,27 @@ WyzeCam v2 since they also got rid of the CdS photoresistor.
 Also, you can find more technical information from the original 
 [Dafang Hacks project](https://github.com/EliasKotlyar/Xiaomi-Dafang-Hacks).
 
-Compilation
+Compilation (easy way)
+============
+
+With docker, in the project dir:
+```
+docker run --rm -ti -v $(pwd):/root/ debian
+```
+
+```
+mkdir /build
+cd /build
+apt-get update
+apt-get install -y p7zip wget git build-essential
+wget https://github.com/Dafang-Hacks/Ingenic-T10_20/raw/master/resource/toolchain/mips-gcc472-glibc216-64bit-r2.3.3.7z
+p7zip -d mips-gcc472-glibc216-64bit-r2.3.3.7z
+export PATH=/build/mips-gcc472-glibc216-64bit/bin/:$PATH
+cd ~
+make
+```
+
+Compilation (harder way)
 ============
 
 1. Download the T20 toolchain, either from [the Dafang-Hacks GitHub repo](https://github.com/Dafang-Hacks/Ingenic-T10_20/tree/master/resource/toolchain) or the [Tuya GitHub repo](https://github.com/TuyaInc/TUYA_IPC_SDK/tree/master/mips-linux-4.7.2_64Bit).
