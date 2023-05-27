@@ -24,7 +24,7 @@ Compilation (easy way)
 
 With docker, in the project dir:
 ```
-docker run --rm -ti -v $(pwd):/root/ debian
+docker run --rm --platform=linux/amd64 -ti -v $(pwd):/root/ debian
 ```
 
 ```
