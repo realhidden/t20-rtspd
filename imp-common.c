@@ -1,3 +1,9 @@
+/*
+ * sample-common.c
+ *
+ * Copyright (C) 2014 Ingenic Semiconductor Co.,Ltd
+ */
+
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
@@ -13,8 +19,16 @@
 #include <imp/imp_common.h>
 #include <imp/imp_system.h>
 #include <imp/imp_framesource.h>
-#include <imp/imp_encoder.h>
 #include <imp/imp_isp.h>
+#ifdef PLATFORM_T31
+  #include <imp/imp_encoder_t31.h>
+
+  /* compat */
+  #define IMPEncoderCHNAttr IMPEncoderChnAttr
+  #define IMPEncoderCHNStat IMPEncoderChnStat
+#else
+  #include <imp/imp_encoder.h>
+#endif
 #include <imp/imp_osd.h>
 #include <ini.h>
 
@@ -24,6 +38,12 @@
 #include "pwm.h"
 
 #define TAG "imp-Common"
+
+#ifdef PLATFORM_T31
+static const int S_RC_METHOD = IMP_ENC_RC_MODE_VBR;
+#else
+static const int S_RC_METHOD = ENC_RC_MODE_SMART;
+#endif
 
 struct chn_conf chn[FS_CHN_NUM] = {
 	{
@@ -124,6 +144,12 @@ struct chn_conf chn_ext_bgra[1] = {
 	},
 };
 
+
+static int ir_illumination = 1;		// use IR LEDs when dark
+static int force_color = 0;			// use color mode, even at night
+static int flip_image = 0;			// flip 180deg for ceiling mounts
+
+
 IMPSensorInfo sensor_info;
 int sample_system_init()
 {
@@ -168,11 +194,41 @@ int sample_system_init()
 		return -1;
 	}
 
+	// set mode to day by default
+	ret = IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_DAY);
+	if(ret < 0){
+		IMP_LOG_ERR(TAG, "unable to set ISP running mode\n");
+		return -1;
+	}
+
     ret = IMP_ISP_Tuning_SetSensorFPS(SENSOR_FRAME_RATE_NUM, SENSOR_FRAME_RATE_DEN);
     if (ret < 0){
         IMP_LOG_ERR(TAG, "failed to set sensor fps\n");
         return -1;
     }
+
+	// try not to blow out the highlights
+	// note that increasing this will decrease overall exposure
+	ret = IMP_ISP_Tuning_SetHiLightDepress(10);
+	if (ret < 0){
+		IMP_LOG_ERR(TAG, "failed to set hilight depress\n");
+		return -1;
+	}
+
+	// flip the image 180deg if requested
+	if (flip_image) {
+		ret = IMP_ISP_Tuning_SetISPHflip(IMPISP_TUNING_OPS_MODE_ENABLE);
+		if (ret < 0){
+			IMP_LOG_ERR(TAG, "failed to horiz flip\n");
+			return -1;
+		}
+
+		ret = IMP_ISP_Tuning_SetISPVflip(IMPISP_TUNING_OPS_MODE_ENABLE);
+		if (ret < 0){
+			IMP_LOG_ERR(TAG, "failed to vert flip\n");
+			return -1;
+		}
+	}
 
 	IMP_LOG_INFO(TAG, "ImpSystemInit success\n");
 
@@ -394,6 +450,8 @@ int sample_framesource_ext_bgra_exit()
 	return 0;
 }
 
+#if 0
+// unused code
 int sample_jpeg_init()
 {
 	int i, ret;
@@ -432,6 +490,7 @@ int sample_jpeg_init()
 
 	return 0;
 }
+#endif
 
 //Config File Stuff
 
@@ -493,7 +552,7 @@ int sample_encoder_init()
 	}
 	printf("Config loaded\n");
 	printf("ENCODING TYPE: %d \n", config.ENCODING_TYPE);
-	
+
 	int S_RC_METHOD = config.ENCODING_TYPE;
 	int maxqp = config.MAXQP;
 	int minqp = config.MINQP;
@@ -508,8 +567,6 @@ int sample_encoder_init()
     int profile = config.PROFILE;
 
 	int i, ret;
-	IMPEncoderAttr *enc_attr;
-	IMPEncoderRcAttr *rc_attr;
 	IMPFSChnAttr *imp_chn_attr_tmp;
 	IMPEncoderCHNAttr channel_attr;
 
@@ -530,6 +587,24 @@ int sample_encoder_init()
                 printf("\t\toverride rate %d/%d\n", rateNum, rateDen);
             }
 			memset(&channel_attr, 0, sizeof(IMPEncoderCHNAttr));
+
+#ifdef PLATFORM_T31
+			unsigned int uTargetBitRate = (double)2000.0 * (imp_chn_attr_tmp->picWidth * imp_chn_attr_tmp->picHeight) / (1280 * 720);
+			ret = IMP_Encoder_SetDefaultParam(&channel_attr, IMP_ENC_PROFILE_AVC_HIGH, S_RC_METHOD,
+					imp_chn_attr_tmp->picWidth, imp_chn_attr_tmp->picHeight,
+					imp_chn_attr_tmp->outFrmRateNum, imp_chn_attr_tmp->outFrmRateDen,
+					imp_chn_attr_tmp->outFrmRateNum * 2 / imp_chn_attr_tmp->outFrmRateDen, 2,
+					(S_RC_METHOD == IMP_ENC_RC_MODE_FIXQP) ? 35 : -1,
+					uTargetBitRate);
+			if (ret < 0) {
+				IMP_LOG_ERR(TAG, "IMP_Encoder_SetDefaultParam(%d) error !\n", chn[i].index);
+				return -1;
+			}
+
+#else
+			IMPEncoderRcAttr *rc_attr;
+			IMPEncoderAttr *enc_attr;
+
 			enc_attr = &channel_attr.encAttr;
 			enc_attr->enType = PT_H264;
 			enc_attr->bufSize = 0;
@@ -614,6 +689,7 @@ int sample_encoder_init()
                 rc_attr->attrHSkip.hSkipAttr.bBlackEnhance = 0;
                 rc_attr->attrHSkip.maxHSkipType = IMP_Encoder_STYPE_N1X;
             }
+#endif
 
 			ret = IMP_Encoder_CreateChn(chn[i].index, &channel_attr);
 			if (ret < 0) {
@@ -971,6 +1047,7 @@ int sample_osd_exit(IMPRgnHandle *prHander,int grpNum)
 	return 0;
 }
 
+#if 0
 static int save_stream(int fd, IMPEncoderStream *stream)
 {
 	int ret, i, nr_pack = stream->packCount;
@@ -1261,7 +1338,13 @@ int sample_get_jpeg_snap()
 	}
 	return 0;
 }
+#endif
 
+#define STRINGIFY__(a) #a
+#define STRINGIFY(a) STRINGIFY__(a)
+
+// Enables the IR cut filter, which blocks out IR light for day time.
+// enable=1 for day time, enable=0 for night.
 int sample_set_IRLED(int enable)
 {
 	int fd1;
@@ -1285,15 +1368,15 @@ int sample_set_IRLED(int enable)
 int sample_set_IRCUT(int enable)
 {
 	int fd1, fd2;
-	fd1 = open("/sys/class/gpio/gpio25/value", O_RDWR);
+	fd1 = open("/sys/class/gpio/gpio" STRINGIFY(IRCUT_DIS_GPIO) "/value", O_RDWR);
 	if (fd1 < 0) {
-		IMP_LOG_DBG(TAG, "open gpio 25 error !");
+		IMP_LOG_DBG(TAG, "open gpio " STRINGIFY(IRCUT_DIS_GPIO) " error !");
 		return -1;
 	}
-	fd2 = open("/sys/class/gpio/gpio26/value", O_RDWR);
+	fd2 = open("/sys/class/gpio/gpio" STRINGIFY(IRCUT_EN_GPIO) "/value", O_RDWR);
 	if (fd2 < 0) {
 		close(fd1);
-		IMP_LOG_DBG(TAG, "open gpio 26 error !");
+		IMP_LOG_DBG(TAG, "open gpio " STRINGIFY(IRCUT_EN_GPIO) " error !");
 		return -1;
 	}
 	if (enable) {
@@ -1324,14 +1407,35 @@ char *get_curr_timestr(char *buf) {
 	return buf;
 }
 
+#define EXP_LENGTH (8 /*sec*/ * 24 /*cycles*/)
+#define NUM_EXP_VALUES (EXP_LENGTH / 8)
+
+
+int set_cam_option(const char *option, int value) {
+	if (strcmp(option, "ir_leds") == 0) {
+		ir_illumination = value;
+	} else if (strcmp(option, "flip") == 0) {
+		flip_image = value;
+	} else if (strcmp(option, "force_color") == 0) {
+		force_color = value;
+	} else {
+		return -1;	// unknown option
+	}
+
+	return 0;
+}
+
 static int  g_soft_ps_running = 1;
 void *sample_soft_photosensitive_ctrl(void *p)
 {
-	int i = 0;
-	int evDebugCount = 10000;
+	int evDebugCount = 0;
+	int hysteresisCount = 5;
 	char tmstr[16];
 	int avgExp;
-	IMPISPRunningMode pmode;
+	int expCount = 0;
+	int expValues[NUM_EXP_VALUES];
+	int expPos = 0;
+	IMPISPRunningMode pmode = IMPISP_RUNNING_MODE_BUTT;
 	int ir_leds_active = 0;
 	int r;
 
@@ -1351,78 +1455,134 @@ void *sample_soft_photosensitive_ctrl(void *p)
 		IMP_LOG_INFO(TAG, "cant enable pwm channel: %d, errno %d", r, errno);
 	}
 
+	// make sure it's in an "uninitialized" state
+	expValues[NUM_EXP_VALUES - 1] = 0;
+
+	sleep(2);	// wait a few for ISP to settle
+
 	while (g_soft_ps_running) {
 		IMPISPEVAttr expAttr;
 		int ret = IMP_ISP_Tuning_GetEVAttr(&expAttr);
 		if (ret == 0) {
 			if (evDebugCount > 0) {
-				printf("EV attr: exp %d aGain %d dGain %d\n",
+				IMP_LOG_DBG(TAG, "EV attr: exp %d aGain %d dGain %d\n",
 						expAttr.ev, expAttr.again, expAttr.dgain);
 				evDebugCount--;
 			}
 		} else
 			return NULL;
 
-		if (i == 0) {
+		if (expCount == 0) {
 			avgExp = expAttr.ev;
 		} else {
 			// exponential moving average
-			avgExp -= avgExp / i;
-			avgExp += expAttr.ev / i;
+			avgExp -= avgExp / expCount;
+			avgExp += expAttr.ev / expCount;
 		}
 
-		if (i < 3) i++;
+		if (expCount < 3) expCount++;
 
-		IMP_ISP_Tuning_GetISPRunningMode(&pmode);
+		// keep a longer running average exposure
+		if (expPos % 8 == 0)
+			expValues[expPos / 8] = avgExp;
+		if (++expPos >= EXP_LENGTH)
+			expPos = 0;
 
-		if (avgExp > 1900000) {
+		// calculate long average exposure value
+		int longExpValue = 0;
+		if (expValues[NUM_EXP_VALUES - 1] == 0) {
+			longExpValue = expValues[0];
+		} else {
+			int stopPos = (expPos / 8) - 8;	// ignore recent 8 cycles
+			if (stopPos < 0) stopPos += NUM_EXP_VALUES;
+
+			int i, j;
+			for (i = 1, j = expPos / 8;
+					j < stopPos;
+					i++, j = (j + 1) % NUM_EXP_VALUES)
+				longExpValue += (expValues[j] - longExpValue) / i;
+		}
+
+		// if the hysteresisCount is active, we skip any changes below
+		if (hysteresisCount > 0) {
+			hysteresisCount--;
+			goto end;
+		}
+
+		///////////////////////////////////////////////////////////////
+
+
+		if (avgExp > EXP_NIGHT_THRESHOLD) {
 			if (pmode != IMPISP_RUNNING_MODE_NIGHT) {
-				printf("[%s] avg exp is %d. switching to night mode\n",
+				pmode = IMPISP_RUNNING_MODE_NIGHT;
+				IMP_LOG_INFO(TAG, "[%s] avg exp is %d. switching to night mode\n",
 						get_curr_timestr((char *) &tmstr), avgExp);
 				evDebugCount = 10; // start logging 10s of EV data
+				hysteresisCount = 5;
 
-				IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_NIGHT);
-				sample_set_IRCUT(1);
-			}
-		} else if (avgExp < 479832) {
-			if (pmode != IMPISP_RUNNING_MODE_DAY) {
-				printf("[%s] avg exp is %d. switching to day mode\n",
-						get_curr_timestr((char *) &tmstr), avgExp);
-				evDebugCount = 10; // start logging 10s of EV data
-
-				IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_DAY);
+				if (! force_color) {
+					IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_NIGHT);
+					IMP_ISP_Tuning_SetSensorFPS(10, SENSOR_FRAME_RATE_DEN);
+				} else {
+					IMP_LOG_INFO(TAG, "[%s] force_color is on\n",
+						get_curr_timestr((char *) &tmstr));
+				}
 				sample_set_IRCUT(0);
+			}
+		} else if (avgExp < EXP_DAY_THRESHOLD) {
+			if (pmode != IMPISP_RUNNING_MODE_DAY) {
+				pmode = IMPISP_RUNNING_MODE_DAY;
+				IMP_LOG_INFO(TAG, "[%s] avg exp is %d. switching to day mode\n",
+						get_curr_timestr((char *) &tmstr), avgExp);
+				evDebugCount = 10; // start logging 10s of EV data
+				hysteresisCount = 5;
+
+				if (! force_color) {
+					IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_DAY);
+					IMP_ISP_Tuning_SetSensorFPS(SENSOR_FRAME_RATE_NUM, SENSOR_FRAME_RATE_DEN);
+				}
+				sample_set_IRCUT(1);
 			}
 		}
 
 		// control IR LEDs
-		if (avgExp > 3000000) {
+		if (avgExp > EXP_IR_THRESHOLD) {
 			// only log for first time
 			if (! ir_leds_active) {
-				printf("[%s] avg exp is %d. turning on IR LEDs\n",
+				IMP_LOG_INFO(TAG, "[%s] avg exp is %d. turning on IR LEDs\n",
 						get_curr_timestr((char *) &tmstr), avgExp);
 				evDebugCount = 10; // start logging 10s of EV data
+				hysteresisCount = 5;
 			}
 
+			// it's ok to go higher, but not lower than long-running average
+			// this prevents sudden bright bursts of light from dimming IR LEDs
+			int ev = (avgExp > longExpValue) ? avgExp : longExpValue;
+
 			// map 3 to 13mil => 1 to 1mil for PWM
-			int level = (avgExp - 3000000) / 10;
+#ifdef PLATFORM_T31
+			int level = (ev - EXP_IR_THRESHOLD) * 3;
+#else
+			int level = (ev - EXP_IR_THRESHOLD) / 10;
+#endif
+
 			// cap to maximum
 			if (level > pwm_cfg.period)
 				level = pwm_cfg.period;
 
-			//pwm_set_duty(pwm_cfg.channel, level);
-			sample_set_IRLED(1);
+			if (ir_illumination) pwm_set_duty(pwm_cfg.channel, level);
 			ir_leds_active = 1;
 		} else if (ir_leds_active) {
-			printf("[%s] avg exp is %d. turning off IR LEDs\n",
+			IMP_LOG_INFO(TAG, "[%s] avg exp is %d. turning off IR LEDs\n",
 						get_curr_timestr((char *) &tmstr), avgExp);
 			evDebugCount = 10; // start logging 10s of EV data
+			hysteresisCount = 5;
 
-			//pwm_set_duty(pwm_cfg.channel, 0);
-			sample_set_IRLED(0);
+			if (ir_illumination) pwm_set_duty(pwm_cfg.channel, 0);
 			ir_leds_active = 0;
 		}
 
+end:
 		sleep(1);
 	}
 

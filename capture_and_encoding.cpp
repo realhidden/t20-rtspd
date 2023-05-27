@@ -16,8 +16,12 @@
 #include <imp/imp_system.h>
 #include <imp/imp_log.h>
 #include <imp/imp_framesource.h>
-#include <imp/imp_encoder.h>
 #include <imp/imp_osd.h>
+#ifdef PLATFORM_T31
+  #include <imp/imp_encoder_t31.h>
+#else
+  #include <imp/imp_encoder.h>
+#endif
 
 #include "imp-common.h" 
 #include "capture_and_encoding.h"
@@ -99,20 +103,52 @@ int destory()
 
 static int save_stream(int fd, IMPEncoderStream *stream)
 {
-	unsigned int ret;
-	int i, nr_pack = stream->packCount;
+	int ret, i, nr_pack = stream->packCount;
 
 	for (i = 0; i < nr_pack; i++) {
+#ifdef PLATFORM_T31
+		IMPEncoderPack *pack = &stream->pack[i];
+		//IMP_LOG_DBG(TAG, "stream vir %08x cnt %d ss %d, p%d off %d len %d",
+		//	stream->virAddr, stream->packCount, stream->streamSize,
+		//	i, pack->offset, pack->length);
+
+		if (pack->length) {
+			uint32_t sz = stream->streamSize - pack->offset;
+			if (sz < pack->length) {
+				// write offset to end part first?
+				ret = write(fd, (void *) (stream->virAddr + pack->offset), sz);
+				if (ret != (ssize_t) sz) {
+					IMP_LOG_ERR(TAG, "stream write error:%s\n", strerror(errno));
+					return -1;
+				}
+
+				ret = write(fd, (void *) stream->virAddr, pack->length - sz);
+				if (ret != (ssize_t) (pack->length - sz)) {
+					IMP_LOG_ERR(TAG, "stream write error:%s\n", strerror(errno));
+					return -1;
+				}
+			} else {
+				ret = write(fd, (void *) (stream->virAddr + pack->offset), pack->length);
+				if (ret != (ssize_t) pack->length) {
+					IMP_LOG_ERR(TAG, "stream write error:%s\n", strerror(errno));
+					return -1;
+				}
+			}
+		}
+#else
 		ret = write(fd, (void *)stream->pack[i].virAddr,
 					stream->pack[i].length);
-		if (ret != stream->pack[i].length){
-			printf("stream write error:%s\n", strerror(errno));
+		if (ret != stream->pack[i].length) {
+			IMP_LOG_ERR(TAG, "stream write error:%s\n", strerror(errno));
 			return -1;
 		}
+		//IMP_LOG_DBG(TAG, "stream->pack[%d].dataType=%d\n", i, ((int)stream->pack[i].dataType.h264Type));
+#endif
 	}
 
 	return 0;
 }
+
 
 static int get_h264_stream(int fd, int chn)
 {
@@ -143,24 +179,24 @@ static int get_h264_stream(int fd, int chn)
 	return 0;
 }
 
-void *get_stream(int fd, int chn)
+int get_stream(int fd, int chn)
 {
 	int  ret;
 	
 	ret = IMP_Encoder_StartRecvPic(chn);
 	if (ret < 0){
-		printf("IMP_Encoder_StartRecvPic(%d) failed\n", 1);
-		return NULL;
+		IMP_LOG_ERR(TAG, "IMP_Encoder_StartRecvPic(%d) failed\n", 1);
+		return ret;
 	}
 	ret = get_h264_stream(fd, chn);
 	if (ret < 0) {
-		printf("Get H264 stream failed\n");
-		return NULL;
+		IMP_LOG_ERR(TAG, "Get H264 stream failed\n");
+		return ret;
 	}
 /*	ret = IMP_Encoder_StopRecvPic(chn);
 	if (ret < 0) {
-		printf("IMP_Encoder_StopRecvPic() failed\n");
-		return NULL;
+		IMP_LOG_ERR(TAG, "IMP_Encoder_StopRecvPic() failed\n");
+		return ret;
 	}
 */
 	return 0;
@@ -264,11 +300,13 @@ int capture_and_encoding()
 	
 	printf(">>>>>capture_and_encoding start\n");
 
+#ifdef PLATFORM_T20L
 	// undocumented functions to increase pool size
 #ifdef ENABLED_OSD
 	IMP_OSD_SetPoolSize(0x64000);
 #endif
 	IMP_Encoder_SetPoolSize(0x100000);
+#endif
 
 	ret = sample_system_init();
 	if (ret < 0) {
@@ -277,6 +315,7 @@ int capture_and_encoding()
 	}
 
 	/* Step.2 FrameSource init */
+	IMP_LOG_INFO(TAG, "FrameSource init...\n");
 	ret = sample_framesource_init();
 	if (ret < 0) {
 		printf("FrameSource init failed\n");
@@ -285,6 +324,7 @@ int capture_and_encoding()
 
 	for (i = 0; i < FS_CHN_NUM; i++) {
 		if (chn[i].enable) {
+			IMP_LOG_INFO(TAG, "Enc CreateGrp for ch %d...\n", i);
 			ret = IMP_Encoder_CreateGroup(chn[i].index);
 			if (ret < 0) {
 				printf("IMP_Encoder_CreateGroup(%d) error !\n", i);
@@ -294,6 +334,7 @@ int capture_and_encoding()
 	}
 
 	/* Step.3 Encoder init */
+	IMP_LOG_INFO(TAG, "EncoderInit...\n");
 	ret = sample_encoder_init();
 	if (ret < 0) {
 		printf("Encoder init failed\n");
@@ -326,6 +367,14 @@ int capture_and_encoding()
 	// Then bind the previous chain which is OSD with the encoder
 	for (i = 0; i < FS_CHN_NUM; i++) {
 		if (chn[i].enable) {
+			IMP_LOG_INFO(TAG, "Binding for ch %d...\n", i);
+			ret = IMP_System_Bind(&chn[i].framesource_chn, &chn[i].imp_encoder);
+			if (ret < 0) {
+				IMP_LOG_ERR(TAG, "Bind FrameSource channel%d and Encoder failed\n",i);
+				return -1;
+			}
+		}
+	}
 			ret = IMP_System_Bind(&osdcell, &chn[i].imp_encoder);
 			if (ret < 0) {
 				printf("Bind FrameSource channel%d and Encoder failed\n",i);
@@ -364,6 +413,8 @@ int capture_and_encoding()
     }
 #endif
 
+	/* Step.5 Stream On */
+	IMP_LOG_INFO(TAG, "StreamOn...\n");
 	/* Step.6 Stream On */
 	ret = sample_framesource_streamon();
 	if (ret < 0) {

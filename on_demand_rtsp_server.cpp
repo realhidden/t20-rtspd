@@ -44,18 +44,13 @@ char const* inputFileName = "/tmp/h264_fifo";
 static void announceStream(RTSPServer* rtspServer, ServerMediaSession* sms,
 			   char const* streamName, char const* inputFileName); // fwd
 
-static char newDemuxWatchVariable;
-
-static MatroskaFileServerDemux* matroskaDemux;
-static void onMatroskaDemuxCreation(MatroskaFileServerDemux* newDemux, void* /*clientData*/) {
-	matroskaDemux = newDemux;
-	newDemuxWatchVariable = 1;
-}
-
-static OggFileServerDemux* oggDemux;
-static void onOggDemuxCreation(OggFileServerDemux* newDemux, void* /*clientData*/) {
-	oggDemux = newDemux;
-	newDemuxWatchVariable = 1;
+void displayUsage() {
+	*env << "usage: t20-rtspd [args...]\n\n"
+		" --help            dispaly this help message\n"
+		" --noir            do not turn on IR LEDs (for use behind glass)\n"
+		" --flip            flips the image 180deg for ceiling mount\n"
+		" --force-color     stay in color mode, even at night\n";
+	exit(0);
 }
 
 int main(int argc, char** argv) {
@@ -64,22 +59,32 @@ int main(int argc, char** argv) {
 	TaskScheduler* scheduler = BasicTaskScheduler::createNew();
 	env = BasicUsageEnvironment::createNew(*scheduler);
 
-	int ver_fd;
-	int ret;
-	ver_fd = open(versionFileName, O_RDWR | O_CREAT | O_TRUNC, 0777);
-	if (ver_fd < 0) {
-		  *env << "Failed open /tmp/version\n";
-		  exit(1);
-	}
-
-	ret = write(ver_fd, VERSION, sizeof(VERSION));
-	if (ret != sizeof(VERSION)) {
-		*env << "write version failed!\n";
-	}
-
-	close(ver_fd);
-
 	*env << "my-carrier-server version: " << VERSION << "\n";
+
+	// parse args
+	for (int i = 1; i < argc; i++) {
+		char *arg = argv[i];
+
+		if (*arg == '-') {
+			arg++;
+			if (*arg == '-') arg++; // tolerate 2 dashes
+
+			if (strcmp(arg, "help") == 0) {
+				displayUsage();
+				exit(0);
+			} else if (strcmp(arg, "noir") == 0) {
+				set_cam_option("ir_leds", 0);
+			} else if (strcmp(arg, "force-color") == 0) {
+				set_cam_option("force_color", 1);
+			} else if (strcmp(arg, "flip") == 0) {
+				set_cam_option("flip", 1);
+			} else {
+				*env << "unrecognized argument " << argv[i] << "\n\n";
+				displayUsage();
+				exit(2);
+			}
+		}
+	}
 
 	UserAuthenticationDatabase* authDB = NULL;
 #ifdef ACCESS_CONTROL
@@ -91,7 +96,11 @@ int main(int argc, char** argv) {
 #endif
 	int fd;
 
-	capture_and_encoding();//基于君正提供的API初始化实现采集和编码模块
+	//基于君正提供的API初始化实现采集和编码模块
+	if (capture_and_encoding() != 0) {
+		*env << "unable to setup camera stream\n";
+		exit(1);
+	}
 	unlink(inputFileName);
 		
 	if (mkfifo(inputFileName, 0777) < 0) {
@@ -106,17 +115,23 @@ int main(int argc, char** argv) {
 			  exit(1);; 
 		}   
 		while (1) {
-			  get_stream(fd ,0);//基于君正提供的API实现采集和编码，并将编码后的数据保存到fifo中。
+			  if (get_stream(fd ,0) < 0) break; //基于君正提供的API实现采集和编码，并将编码后的数据保存到fifo中。
 		}
 	} else {
 		// Create a 'H264 Video RTP' sink from the RTP 'groupsock':
 		OutPacketBuffer::maxSize = 600000;
 		
-        // Create the RTSP server:
+		// Create the RTSP server:
 		RTSPServer* rtspServer = RTSPServer::createNew(*env, 554, authDB);
 		if (rtspServer == NULL) {
 		  *env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
 		  exit(1);
+		}
+
+		// enable TCP keepalive on socket
+		int keepalive_flag = 1;
+		if (setsockopt(rtspServer->fServerSocket, SOL_SOCKET, SO_KEEPALIVE, (void*) &keepalive_flag, sizeof(keepalive_flag)) != 0) {
+		  *env << "unable to set keepalive on socket: " << strerror(errno) << "\n";
 		}
 
 		char const* descriptionString

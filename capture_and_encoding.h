@@ -3,6 +3,11 @@
 
 int capture_and_encoding(void); 
 int destory(void);
-void *get_stream(int fd, int chn);
+int get_stream(int fd, int chn);
+
+// implemented in imp-common.c
+extern "C" {
+int set_cam_option(const char *option, int value);
+}
 
 #endif
