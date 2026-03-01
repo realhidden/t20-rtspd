@@ -1321,8 +1321,6 @@ int sample_set_IRLED(int enable)
 	}
 	close(fd1);
 
-	//needs time to adjust
-    usleep(5000*1000);
 	return 0;
 }
 
@@ -1353,8 +1351,6 @@ int sample_set_IRCUT(int enable)
 	close(fd1);
 	close(fd2);
 
-	//needs time to adjust
-	usleep(5000*1000);
 	return 0;
 }
 
@@ -1371,10 +1367,11 @@ char *get_curr_timestr(char *buf) {
 static int  g_soft_ps_running = 1;
 void *sample_soft_photosensitive_ctrl(void *p)
 {
-	int i = 0;
 	int evDebugCount = 10000;
+	int ev_err_count = 0;
 	char tmstr[16];
-	int avgExp;
+	int avgExp = 0;
+	int avgExp_init = 0;
 	IMPISPRunningMode pmode;
 	int ir_leds_active = 0;
 	int r;
@@ -1398,24 +1395,31 @@ void *sample_soft_photosensitive_ctrl(void *p)
 	while (g_soft_ps_running) {
 		IMPISPEVAttr expAttr;
 		int ret = IMP_ISP_Tuning_GetEVAttr(&expAttr);
-		if (ret == 0) {
-			if (evDebugCount > 0) {
-				printf("EV attr: exp %d aGain %d dGain %d\n",
-						expAttr.ev, expAttr.again, expAttr.dgain);
-				evDebugCount--;
-			}
-		} else
-			return NULL;
-
-		if (i == 0) {
-			avgExp = expAttr.ev;
-		} else {
-			// exponential moving average
-			avgExp -= avgExp / i;
-			avgExp += expAttr.ev / i;
+		if (ret != 0) {
+			ev_err_count++;
+			if (ev_err_count <= 3)
+				printf("GetEVAttr failed (%d), retrying...\n", ev_err_count);
+			sleep(1);
+			continue;
+		}
+		if (ev_err_count > 0) {
+			printf("GetEVAttr recovered after %d failures\n", ev_err_count);
+			ev_err_count = 0;
 		}
 
-		if (i < 3) i++;
+		if (evDebugCount > 0) {
+			printf("EV attr: exp %d aGain %d dGain %d\n",
+					expAttr.ev, expAttr.again, expAttr.dgain);
+			evDebugCount--;
+		}
+
+		/* EMA with fixed alpha = 1/4 (shift-based, no division) */
+		if (!avgExp_init) {
+			avgExp = expAttr.ev;
+			avgExp_init = 1;
+		} else {
+			avgExp = avgExp - (avgExp >> 2) + (expAttr.ev >> 2);
+		}
 
 		IMP_ISP_Tuning_GetISPRunningMode(&pmode);
 
