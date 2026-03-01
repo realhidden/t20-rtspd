@@ -15,11 +15,11 @@ export PATH=/build/mips-gcc472-glibc216-64bit/bin/:$PATH
 echo "=== Step 2: Cross-compiling minimal FFmpeg ==="
 if [ ! -f /build/ffmpeg-mips-install/lib/libavformat.a ]; then
     cd /build
-    if [ ! -d /build/ffmpeg-4.4.5 ]; then
-        wget -q https://ffmpeg.org/releases/ffmpeg-4.4.5.tar.xz
-        tar xf ffmpeg-4.4.5.tar.xz
+    if [ ! -d /build/ffmpeg-4.4.6 ]; then
+        wget -q https://ffmpeg.org/releases/ffmpeg-4.4.6.tar.xz
+        tar xf ffmpeg-4.4.6.tar.xz
     fi
-    cd /build/ffmpeg-4.4.5
+    cd /build/ffmpeg-4.4.6
     ./configure \
         --cross-prefix=mips-linux-uclibc-gnu- --arch=mips --target-os=linux \
         --enable-cross-compile --enable-static --disable-shared --disable-programs --disable-doc \
