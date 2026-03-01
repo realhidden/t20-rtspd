@@ -29,6 +29,9 @@ static int64_t g_chunk_start_time = 0;  /* seconds since epoch */
 static int64_t g_frame_count = 0;
 static int64_t g_first_pts = -1;
 
+static uint8_t *g_frame_buf = NULL;
+static int g_frame_buf_size = 0;
+
 static int check_disk_usage(const char *path)
 {
 	struct statvfs stat;
@@ -291,22 +294,27 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 	if (total_size <= 0)
 		return 0;
 
-	AVPacket pkt;
-	memset(&pkt, 0, sizeof(pkt));
-
-	uint8_t *buf = (uint8_t *)av_malloc(total_size);
-	if (!buf) {
-		printf("[%s] av_malloc(%d) failed\n", TAG, total_size);
-		return -1;
+	/* Grow reusable frame buffer if needed */
+	if (total_size > g_frame_buf_size) {
+		free(g_frame_buf);
+		g_frame_buf = (uint8_t *)malloc(total_size);
+		if (!g_frame_buf) {
+			printf("[%s] malloc(%d) failed\n", TAG, total_size);
+			g_frame_buf_size = 0;
+			return -1;
+		}
+		g_frame_buf_size = total_size;
 	}
 
 	int offset = 0;
 	for (i = 0; i < (int)stream->packCount; i++) {
-		memcpy(buf + offset, (void *)stream->pack[i].virAddr, stream->pack[i].length);
+		memcpy(g_frame_buf + offset, (void *)stream->pack[i].virAddr, stream->pack[i].length);
 		offset += stream->pack[i].length;
 	}
 
-	pkt.data = buf;
+	AVPacket pkt;
+	memset(&pkt, 0, sizeof(pkt));
+	pkt.data = g_frame_buf;
 	pkt.size = total_size;
 	pkt.stream_index = g_video_stream->index;
 
@@ -328,7 +336,6 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 		pkt.flags |= AV_PKT_FLAG_KEY;
 
 	ret = av_interleaved_write_frame(g_fmt_ctx, &pkt);
-	av_free(buf);
 
 	if (ret < 0) {
 		printf("[%s] av_interleaved_write_frame failed: %d\n", TAG, ret);
@@ -358,6 +365,12 @@ void mkv_recorder_shutdown(void)
 	g_sps_size = 0;
 	g_pps_size = 0;
 	g_got_extradata = 0;
+
+	if (g_frame_buf) {
+		free(g_frame_buf);
+		g_frame_buf = NULL;
+		g_frame_buf_size = 0;
+	}
 }
 
 int64_t mkv_recorder_get_frame_count(void)
