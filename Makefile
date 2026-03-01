@@ -27,7 +27,7 @@ LINK_OBJ	 = ini.o pwm.o imp-common.o capture_and_encoding.o on_demand_rtsp_serve
 APP = t20-rtspd
 
 commit_tag=$(shell git rev-parse --short HEAD)
-.PHONY:all
+.PHONY: all
 all : version $(APP)
 version :
 	@if  ! grep "$(commit_tag)" version.h >/dev/null ; then                   \
@@ -46,4 +46,3 @@ $(APP): $(LINK_OBJ)
 
 clean:
 	-rm -rf *.$(OBJ) $(APP) core *.core *~ include/*~ version.h
-
