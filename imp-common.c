@@ -1048,7 +1048,7 @@ int sample_do_get_h264_stream(int nr_frames)
 	struct tm *now_tm;
 	now_tm = localtime(&now);
 	char now_str[32];
-	strftime(now_str, 40, "%Y%m%d%I%M%S", now_tm);
+	strftime(now_str, 40, "%Y%m%d%H%M%S", now_tm);
 
 	char stream_path[128];
 	sprintf(stream_path, "%s/stream-%s.h264",
@@ -1115,7 +1115,7 @@ int sample_do_get_jpeg_snap(void)
 	struct tm *now_tm;
 	now_tm = localtime(&now);
 	char now_str[32];
-	strftime(now_str, 40, "%Y%m%d%I%M%S", now_tm);
+	strftime(now_str, 40, "%Y%m%d%H%M%S", now_tm);
 
 	char snap_path[128];
 	sprintf(snap_path, "%s/snap-%s.jpg",
