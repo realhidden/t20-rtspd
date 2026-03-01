@@ -52,5 +52,4 @@ make
 
 echo "=== Build complete ==="
 ls -la t20-rtspd
-file t20-rtspd
 mips-linux-uclibc-gnu-size t20-rtspd
