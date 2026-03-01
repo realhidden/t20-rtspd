@@ -167,24 +167,24 @@ static void close_current_chunk(void)
 	g_first_pts = -1;
 }
 
-static int is_idr_frame(IMPEncoderStream *stream)
+/* Single pass: detect IDR and cache SPS/PPS if this is an IDR frame.
+ * Returns 1 if IDR, 0 otherwise. Only re-caches if data actually changed. */
+static int inspect_frame(IMPEncoderStream *stream)
 {
 	int i;
-	for (i = 0; i < (int)stream->packCount; i++) {
-		if (stream->pack[i].dataType.h264Type == IMP_H264_NAL_SLICE_IDR)
-			return 1;
-	}
-	return 0;
-}
+	int idr = 0;
 
-static void cache_sps_pps(IMPEncoderStream *stream)
-{
-	int i;
 	for (i = 0; i < (int)stream->packCount; i++) {
 		IMPEncoderPack *pack = &stream->pack[i];
 		IMPEncoderH264NaluType nal_type = pack->dataType.h264Type;
 
-		if (nal_type == IMP_H264_NAL_SPS) {
+		if (nal_type == IMP_H264_NAL_SLICE_IDR) {
+			idr = 1;
+		} else if (nal_type == IMP_H264_NAL_SPS) {
+			/* Skip re-cache if unchanged */
+			if (g_sps_size == (int)pack->length && g_sps_data &&
+					memcmp(g_sps_data, (void *)pack->virAddr, pack->length) == 0)
+				continue;
 			if (g_sps_data)
 				free(g_sps_data);
 			g_sps_data = (uint8_t *)malloc(pack->length);
@@ -193,6 +193,9 @@ static void cache_sps_pps(IMPEncoderStream *stream)
 				g_sps_size = pack->length;
 			}
 		} else if (nal_type == IMP_H264_NAL_PPS) {
+			if (g_pps_size == (int)pack->length && g_pps_data &&
+					memcmp(g_pps_data, (void *)pack->virAddr, pack->length) == 0)
+				continue;
 			if (g_pps_data)
 				free(g_pps_data);
 			g_pps_data = (uint8_t *)malloc(pack->length);
@@ -205,6 +208,8 @@ static void cache_sps_pps(IMPEncoderStream *stream)
 
 	if (g_sps_data && g_pps_data)
 		g_got_extradata = 1;
+
+	return idr;
 }
 
 int mkv_recorder_init(const mkv_recorder_config_t *config)
@@ -257,14 +262,17 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 	if (!g_config.enabled)
 		return 0;
 
-	/* Always try to cache SPS/PPS from incoming stream */
-	cache_sps_pps(stream);
-
-	/* Wait until we have extradata before opening first chunk */
-	if (!g_got_extradata)
-		return 0;
-
-	idr = is_idr_frame(stream);
+	/* Fast path: non-IDR frames with extradata already cached
+	 * skip the full pack inspection entirely */
+	if (g_got_extradata && stream->packCount > 0 &&
+			stream->pack[0].dataType.h264Type != IMP_H264_NAL_SPS) {
+		idr = 0;
+	} else {
+		/* Full inspection: detect IDR + cache SPS/PPS in one pass */
+		idr = inspect_frame(stream);
+		if (!g_got_extradata)
+			return 0;
+	}
 
 	/* Check if we need to rotate chunks */
 	if (g_fmt_ctx && idr) {
