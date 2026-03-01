@@ -184,6 +184,32 @@ extern "C"
 
 /*#define SUPPORT_RGB555LE*/
 
+typedef struct{
+	/* encoding settings (existing) */
+	int ENCODING_TYPE;
+	int MAXQP;
+	int MINQP;
+	int BIASLVL;
+	int FROMQPSTEP;
+	int GOPQPSTEP;
+	double BITRATE;
+	int WIDTH;
+	int HEIGHT;
+	int RATENUM;
+	int RATEDEN;
+	int PROFILE;
+	/* recording settings */
+	int recording_enabled;
+	char recording_output_dir[256];
+	int recording_chunk_duration;
+	int recording_disk_threshold;
+	/* rtsp settings */
+	int rtsp_enabled;
+	int rtsp_port;
+} app_config_t;
+
+int app_config_parse(const char *ini_path, app_config_t *config);
+
 struct chn_conf{
 	unsigned int index;//0 for main channel ,1 for second channel
 	unsigned int enable;
@@ -215,6 +241,7 @@ int sample_framesource_ext_hsv_exit();
 int sample_framesource_ext_bgra_init();
 int sample_framesource_ext_bgra_exit();
 
+void sample_encoder_set_config(app_config_t *config);
 int sample_encoder_init();
 int sample_jpeg_init();
 int sample_encoder_exit(void);

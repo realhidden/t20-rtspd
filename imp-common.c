@@ -435,23 +435,8 @@ int sample_jpeg_init()
 
 //Config File Stuff
 
-typedef struct{
-	int ENCODING_TYPE;
-	int MAXQP;
-	int MINQP;
-	int BIASLVL;
-	int FROMQPSTEP;
-	int GOPQPSTEP;
-	double BITRATE;
-	int WIDTH;
-	int HEIGHT;
-	int RATENUM;
-	int RATEDEN;
-	int PROFILE;
-} configuration;
-
 static int handler(void* user, const char* section, const char* name, const char* value){
-	configuration* pconfig = (configuration*)user;
+	app_config_t* pconfig = (app_config_t*)user;
 	#define MATCH(s, n) strcmp(section, s) == 0 && strcmp(name, n) == 0
 	if (MATCH("user", "ENCODING_TYPE")){
 		pconfig->ENCODING_TYPE = atoi(value);
@@ -477,23 +462,64 @@ static int handler(void* user, const char* section, const char* name, const char
         pconfig->PROFILE  = atoi(value);
     } else if (MATCH("user", "BITRATE")){
 		pconfig->BITRATE  = atoi(value);
+	} else if (MATCH("recording", "ENABLED")){
+		pconfig->recording_enabled = atoi(value);
+	} else if (MATCH("recording", "OUTPUT_DIR")){
+		strncpy(pconfig->recording_output_dir, value, sizeof(pconfig->recording_output_dir) - 1);
+		pconfig->recording_output_dir[sizeof(pconfig->recording_output_dir) - 1] = '\0';
+	} else if (MATCH("recording", "CHUNK_DURATION")){
+		pconfig->recording_chunk_duration = atoi(value);
+	} else if (MATCH("recording", "DISK_USAGE_THRESHOLD")){
+		pconfig->recording_disk_threshold = atoi(value);
+	} else if (MATCH("rtsp", "ENABLED")){
+		pconfig->rtsp_enabled = atoi(value);
+	} else if (MATCH("rtsp", "PORT")){
+		pconfig->rtsp_port = atoi(value);
 	} else {
 		return 0;
 	}
 	return 1;
 }
 
-int sample_encoder_init()
+int app_config_parse(const char *ini_path, app_config_t *config)
 {
+	/* Set defaults */
+	memset(config, 0, sizeof(app_config_t));
+	config->recording_enabled = 1;
+	strncpy(config->recording_output_dir, "/system/sdcard/DCIM/Recording",
+			sizeof(config->recording_output_dir) - 1);
+	config->recording_chunk_duration = 300;
+	config->recording_disk_threshold = 90;
+	config->rtsp_enabled = 0;
+	config->rtsp_port = 554;
 
-	configuration config;
-	if (ini_parse("test.ini", handler, &config) < 0){
-		printf("Can't load testini\n");
+	if (ini_parse(ini_path, handler, config) < 0) {
+		printf("Can't load %s\n", ini_path);
 		return -1;
 	}
+	return 0;
+}
+
+/* Global config pointer set by main before calling sample_encoder_init */
+static app_config_t *g_app_config = NULL;
+
+void sample_encoder_set_config(app_config_t *config)
+{
+	g_app_config = config;
+}
+
+int sample_encoder_init()
+{
+	app_config_t *pconfig = g_app_config;
+	if (!pconfig) {
+		printf("No config set, call sample_encoder_set_config first\n");
+		return -1;
+	}
+	app_config_t config = *pconfig;
+
 	printf("Config loaded\n");
 	printf("ENCODING TYPE: %d \n", config.ENCODING_TYPE);
-	
+
 	int S_RC_METHOD = config.ENCODING_TYPE;
 	int maxqp = config.MAXQP;
 	int minqp = config.MINQP;

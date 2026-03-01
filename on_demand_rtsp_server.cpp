@@ -14,134 +14,28 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // Copyright (c) 1996-2018, Live Networks, Inc.  All rights reserved
-// A test program that demonstrates how to stream - via unicast RTP
-// - various kinds of file on demand, using a built-in RTSP server.
-// main program
 
 #include "liveMedia.hh"
 #include "BasicUsageEnvironment.hh"
-#include <sys/types.h>  
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
- 
+#include <signal.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <string.h>
+
 #include "capture_and_encoding.h"
+#include "imp-common.h"
+#include "mkv_recorder.h"
 #include "version.h"
 
-UsageEnvironment* env;
+static volatile int g_running = 1;
 
-// To make the second and subsequent client for each stream reuse the same
-// input stream as the first client (rather than playing the file from the
-// start for each client), change the following "False" to "True":
-Boolean reuseFirstSource = False;
-
-// To stream *only* MPEG-1 or 2 video "I" frames
-// (e.g., to reduce network bandwidth),
-// change the following "False" to "True":
-Boolean iFramesOnly = False;
-
-char const* inputFileName = "/tmp/h264_fifo";
-
-static void announceStream(RTSPServer* rtspServer, ServerMediaSession* sms,
-			   char const* streamName, char const* inputFileName); // fwd
-
-static char newDemuxWatchVariable;
-
-static MatroskaFileServerDemux* matroskaDemux;
-static void onMatroskaDemuxCreation(MatroskaFileServerDemux* newDemux, void* /*clientData*/) {
-	matroskaDemux = newDemux;
-	newDemuxWatchVariable = 1;
-}
-
-static OggFileServerDemux* oggDemux;
-static void onOggDemuxCreation(OggFileServerDemux* newDemux, void* /*clientData*/) {
-	oggDemux = newDemux;
-	newDemuxWatchVariable = 1;
-}
-
-int main(int argc, char** argv) {
-	// Begin by setting up our usage environment:
-	char const* versionFileName = "/tmp/version";
-	TaskScheduler* scheduler = BasicTaskScheduler::createNew();
-	env = BasicUsageEnvironment::createNew(*scheduler);
-
-	int ver_fd;
-	int ret;
-	ver_fd = open(versionFileName, O_RDWR | O_CREAT | O_TRUNC, 0777);
-	if (ver_fd < 0) {
-		  *env << "Failed open /tmp/version\n";
-		  exit(1);
-	}
-
-	ret = write(ver_fd, VERSION, sizeof(VERSION));
-	if (ret != sizeof(VERSION)) {
-		*env << "write version failed!\n";
-	}
-
-	close(ver_fd);
-
-	*env << "my-carrier-server version: " << VERSION << "\n";
-
-	UserAuthenticationDatabase* authDB = NULL;
-#ifdef ACCESS_CONTROL
-	// To implement client access control to the RTSP server, do the following:
-	authDB = new UserAuthenticationDatabase;
-	authDB->addUserRecord("username1", "password1"); // replace these with real strings
-	// Repeat the above with each <username>, <password> that you wish to allow
-	// access to the server.
-#endif
-	int fd;
-
-	capture_and_encoding();//基于君正提供的API初始化实现采集和编码模块
-	unlink(inputFileName);
-		
-	if (mkfifo(inputFileName, 0777) < 0) {
-			  *env << "mkfifo Failed\n";
-			  exit(1);; 
-	}
-
-	if (fork() > 0) {
-		fd = open(inputFileName, O_RDWR | O_CREAT | O_TRUNC, 0777);
-		if (fd < 0) {
-			  *env << "Failed open fifo\n";
-			  exit(1);; 
-		}   
-		while (1) {
-			  get_stream(fd ,0);//基于君正提供的API实现采集和编码，并将编码后的数据保存到fifo中。
-		}
-	} else {
-		// Create a 'H264 Video RTP' sink from the RTP 'groupsock':
-		OutPacketBuffer::maxSize = 600000;
-		
-        // Create the RTSP server:
-		RTSPServer* rtspServer = RTSPServer::createNew(*env, 554, authDB);
-		if (rtspServer == NULL) {
-		  *env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
-		  exit(1);
-		}
-
-		char const* descriptionString
-		  = "Session streamed by \"testOnDemandRTSPServer\"";
-
-		// Set up each of the possible streams that can be served by the
-		// RTSP server.  Each such stream is implemented using a
-		// "ServerMediaSession" object, plus one or more
-		// "ServerMediaSubsession" objects for each audio/video substream.
-
-		// A H.264 video elementary stream:
-		char const* streamName = "unicast";
-		ServerMediaSession* sms
-		  = ServerMediaSession::createNew(*env, streamName, streamName,
-					      descriptionString);
-		sms->addSubsession(H264VideoFileServerMediaSubsession
-			       ::createNew(*env, inputFileName, reuseFirstSource));
-		rtspServer->addServerMediaSession(sms);
-
-		announceStream(rtspServer, sms, streamName, inputFileName);
-	}
-
-	env->taskScheduler().doEventLoop(); // does not return
-
-	return 0; // only to prevent compiler warning
+static void signal_handler(int sig)
+{
+	printf("Caught signal %d, shutting down...\n", sig);
+	g_running = 0;
 }
 
 static void announceStream(RTSPServer* rtspServer, ServerMediaSession* sms,
@@ -152,4 +46,166 @@ static void announceStream(RTSPServer* rtspServer, ServerMediaSession* sms,
 	    << inputFileName << "\"\n";
 	env << "Play this stream using the URL \"" << url << "\"\n";
 	delete[] url;
+}
+
+int main(int argc, char** argv) {
+	int ret;
+	char const* inputFileName = "/tmp/h264_fifo";
+	int fifo_fd = -1;
+
+	/* Write version file */
+	char const* versionFileName = "/tmp/version";
+	int ver_fd = open(versionFileName, O_RDWR | O_CREAT | O_TRUNC, 0777);
+	if (ver_fd >= 0) {
+		write(ver_fd, VERSION, sizeof(VERSION));
+		close(ver_fd);
+	}
+	printf("t20-rtspd version: %s\n", VERSION);
+
+	/* Install signal handlers for clean shutdown */
+	signal(SIGINT, signal_handler);
+	signal(SIGTERM, signal_handler);
+
+	/* Step 1: Parse INI config */
+	app_config_t config;
+	if (app_config_parse("test.ini", &config) < 0) {
+		printf("Failed to parse config\n");
+		return 1;
+	}
+
+	/* Pass config to encoder init */
+	sample_encoder_set_config(&config);
+
+	/* Step 2: Initialize IMP SDK (capture and encoding) */
+	ret = capture_and_encoding();
+	if (ret < 0) {
+		printf("capture_and_encoding() failed\n");
+		return 1;
+	}
+
+	/* Step 3: If RTSP enabled, create FIFO and fork child for live555 */
+	if (config.rtsp_enabled) {
+		printf("RTSP server enabled on port %d\n", config.rtsp_port);
+
+		unlink(inputFileName);
+		if (mkfifo(inputFileName, 0777) < 0) {
+			printf("mkfifo failed\n");
+			return 1;
+		}
+
+		pid_t pid = fork();
+		if (pid < 0) {
+			printf("fork() failed\n");
+			return 1;
+		}
+
+		if (pid == 0) {
+			/* Child process: RTSP server */
+			TaskScheduler* scheduler = BasicTaskScheduler::createNew();
+			UsageEnvironment* env = BasicUsageEnvironment::createNew(*scheduler);
+
+			OutPacketBuffer::maxSize = 600000;
+
+			UserAuthenticationDatabase* authDB = NULL;
+#ifdef ACCESS_CONTROL
+			authDB = new UserAuthenticationDatabase;
+			authDB->addUserRecord("username1", "password1");
+#endif
+
+			RTSPServer* rtspServer = RTSPServer::createNew(*env, config.rtsp_port, authDB);
+			if (rtspServer == NULL) {
+				*env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
+				exit(1);
+			}
+
+			char const* descriptionString = "Session streamed by \"t20-rtspd\"";
+			char const* streamName = "unicast";
+			ServerMediaSession* sms
+			  = ServerMediaSession::createNew(*env, streamName, streamName,
+							      descriptionString);
+			sms->addSubsession(H264VideoFileServerMediaSubsession
+				       ::createNew(*env, inputFileName, False));
+			rtspServer->addServerMediaSession(sms);
+
+			announceStream(rtspServer, sms, streamName, inputFileName);
+
+			env->taskScheduler().doEventLoop(); /* does not return */
+			return 0;
+		}
+
+		/* Parent process continues: open FIFO for writing */
+		fifo_fd = open(inputFileName, O_RDWR | O_CREAT | O_TRUNC, 0777);
+		if (fifo_fd < 0) {
+			printf("Failed to open FIFO for writing\n");
+			return 1;
+		}
+	} else {
+		printf("RTSP server disabled\n");
+	}
+
+	/* Step 4: Init MKV recorder */
+	if (config.recording_enabled) {
+		mkv_recorder_config_t rec_config;
+		rec_config.enabled = config.recording_enabled;
+		strncpy(rec_config.output_dir, config.recording_output_dir, sizeof(rec_config.output_dir) - 1);
+		rec_config.output_dir[sizeof(rec_config.output_dir) - 1] = '\0';
+		rec_config.chunk_duration = config.recording_chunk_duration;
+		rec_config.disk_usage_threshold = config.recording_disk_threshold;
+		rec_config.width = config.WIDTH ? config.WIDTH : SENSOR_WIDTH;
+		rec_config.height = config.HEIGHT ? config.HEIGHT : SENSOR_HEIGHT;
+		rec_config.fps_num = config.RATENUM ? config.RATENUM : SENSOR_FRAME_RATE_NUM;
+		rec_config.fps_den = config.RATEDEN ? config.RATEDEN : SENSOR_FRAME_RATE_DEN;
+
+		ret = mkv_recorder_init(&rec_config);
+		if (ret < 0) {
+			printf("mkv_recorder_init() failed\n");
+			return 1;
+		}
+	}
+
+	/* Step 5: Start receiving encoded frames */
+	ret = start_encoder_receiving(0);
+	if (ret < 0) {
+		printf("start_encoder_receiving() failed\n");
+		return 1;
+	}
+
+	/* Step 6: Main capture loop */
+	printf("Entering main capture loop\n");
+	while (g_running) {
+		/* Poll for encoded stream */
+		ret = IMP_Encoder_PollingStream(0, 100);
+		if (ret < 0)
+			continue; /* timeout, try again */
+
+		IMPEncoderStream stream;
+		ret = IMP_Encoder_GetStream(0, &stream, 1);
+		if (ret < 0) {
+			printf("IMP_Encoder_GetStream() failed\n");
+			continue;
+		}
+
+		/* Feed to MKV recorder */
+		if (config.recording_enabled)
+			mkv_recorder_write_frame(&stream);
+
+		/* Feed to RTSP FIFO if enabled */
+		if (config.rtsp_enabled && fifo_fd >= 0)
+			save_stream_to_fd(fifo_fd, &stream);
+
+		IMP_Encoder_ReleaseStream(0, &stream);
+	}
+
+	/* Clean shutdown */
+	printf("Shutting down...\n");
+
+	if (config.recording_enabled)
+		mkv_recorder_shutdown();
+
+	if (fifo_fd >= 0)
+		close(fifo_fd);
+
+	IMP_Encoder_StopRecvPic(0);
+
+	return 0;
 }
