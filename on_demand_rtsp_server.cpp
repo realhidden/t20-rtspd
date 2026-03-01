@@ -28,6 +28,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "capture_and_encoding.h"
 #include "imp-common.h"
 #include "mkv_recorder.h"
+#include "grafana_push.h"
 #include "version.h"
 
 static volatile int g_running = 1;
@@ -163,6 +164,23 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	/* Step 4b: Init Grafana metrics push */
+	if (config.grafana_enabled) {
+		grafana_push_config_t gf_config;
+		gf_config.enabled = config.grafana_enabled;
+		strncpy(gf_config.push_url, config.grafana_push_url, sizeof(gf_config.push_url) - 1);
+		gf_config.push_url[sizeof(gf_config.push_url) - 1] = '\0';
+		strncpy(gf_config.username, config.grafana_username, sizeof(gf_config.username) - 1);
+		gf_config.username[sizeof(gf_config.username) - 1] = '\0';
+		strncpy(gf_config.api_key, config.grafana_api_key, sizeof(gf_config.api_key) - 1);
+		gf_config.api_key[sizeof(gf_config.api_key) - 1] = '\0';
+		gf_config.push_interval_ms = config.grafana_push_interval_ms;
+
+		ret = grafana_push_init(&gf_config);
+		if (ret < 0)
+			printf("grafana_push_init() failed (non-fatal)\n");
+	}
+
 	/* Step 5: Start receiving encoded frames */
 	ret = start_encoder_receiving(0);
 	if (ret < 0) {
@@ -198,6 +216,9 @@ int main(int argc, char** argv) {
 
 	/* Clean shutdown */
 	printf("Shutting down...\n");
+
+	if (config.grafana_enabled)
+		grafana_push_shutdown();
 
 	if (config.recording_enabled)
 		mkv_recorder_shutdown();

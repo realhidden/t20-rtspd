@@ -475,6 +475,22 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->rtsp_enabled = atoi(value);
 	} else if (MATCH("rtsp", "PORT")){
 		pconfig->rtsp_port = atoi(value);
+	} else if (MATCH("grafana", "GRAFANA_ENABLED")){
+		if (strcmp(value, "true") == 0 || strcmp(value, "1") == 0)
+			pconfig->grafana_enabled = 1;
+		else
+			pconfig->grafana_enabled = 0;
+	} else if (MATCH("grafana", "GRAFANA_PUSH_URL")){
+		strncpy(pconfig->grafana_push_url, value, sizeof(pconfig->grafana_push_url) - 1);
+		pconfig->grafana_push_url[sizeof(pconfig->grafana_push_url) - 1] = '\0';
+	} else if (MATCH("grafana", "GRAFANA_USERNAME")){
+		strncpy(pconfig->grafana_username, value, sizeof(pconfig->grafana_username) - 1);
+		pconfig->grafana_username[sizeof(pconfig->grafana_username) - 1] = '\0';
+	} else if (MATCH("grafana", "GRAFANA_API_KEY")){
+		strncpy(pconfig->grafana_api_key, value, sizeof(pconfig->grafana_api_key) - 1);
+		pconfig->grafana_api_key[sizeof(pconfig->grafana_api_key) - 1] = '\0';
+	} else if (MATCH("grafana", "GRAFANA_PUSH_INTERVAL_MS")){
+		pconfig->grafana_push_interval_ms = atoi(value);
 	} else {
 		return 0;
 	}
@@ -492,6 +508,8 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->recording_disk_threshold = 90;
 	config->rtsp_enabled = 0;
 	config->rtsp_port = 554;
+	config->grafana_enabled = 0;
+	config->grafana_push_interval_ms = 60000;
 
 	if (ini_parse(ini_path, handler, config) < 0) {
 		printf("Can't load %s\n", ini_path);

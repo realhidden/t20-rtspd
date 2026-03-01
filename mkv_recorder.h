@@ -1,6 +1,7 @@
 #ifndef __MKV_RECORDER_H__
 #define __MKV_RECORDER_H__
 
+#include <stdint.h>
 #include <imp/imp_common.h>
 #include <imp/imp_encoder.h>
 
@@ -22,6 +23,9 @@ typedef struct {
 int mkv_recorder_init(const mkv_recorder_config_t *config);
 int mkv_recorder_write_frame(IMPEncoderStream *stream);
 void mkv_recorder_shutdown(void);
+int64_t mkv_recorder_get_frame_count(void);
+int64_t mkv_recorder_get_chunk_start_time(void);
+int mkv_recorder_get_disk_usage(int *usage_pct, unsigned long *free_kb);
 
 #ifdef __cplusplus
 }

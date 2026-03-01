@@ -23,7 +23,7 @@ LINK 		 =  $(CROSS_COMPILE)g++ -o
 #LINK_OPTS    =  -ldl  -lm -lpthread -ldl -g
 LINK_OPTS    =  -lpthread -lm -lrt -ldl
 CONSOLE_LINK_OPTS = $(LINK_OPTS)
-LINK_OBJ	 = ini.o pwm.o imp-common.o capture_and_encoding.o mkv_recorder.o on_demand_rtsp_server.o
+LINK_OBJ	 = ini.o pwm.o imp-common.o capture_and_encoding.o mkv_recorder.o grafana_push.o on_demand_rtsp_server.o
 
 APP = t20-rtspd
 
