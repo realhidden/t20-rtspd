@@ -359,3 +359,35 @@ void mkv_recorder_shutdown(void)
 	g_pps_size = 0;
 	g_got_extradata = 0;
 }
+
+int64_t mkv_recorder_get_frame_count(void)
+{
+	return g_frame_count;
+}
+
+int64_t mkv_recorder_get_chunk_start_time(void)
+{
+	return g_chunk_start_time;
+}
+
+int mkv_recorder_get_disk_usage(int *usage_pct, unsigned long *free_kb)
+{
+	struct statvfs stat;
+
+	if (statvfs(g_config.output_dir, &stat) != 0)
+		return -1;
+
+	unsigned long total = stat.f_blocks;
+	unsigned long avail = stat.f_bavail;
+
+	if (usage_pct) {
+		if (total == 0)
+			*usage_pct = 0;
+		else
+			*usage_pct = (int)(((total - avail) * 100) / total);
+	}
+	if (free_kb)
+		*free_kb = (unsigned long)((avail * stat.f_frsize) / 1024);
+
+	return 0;
+}

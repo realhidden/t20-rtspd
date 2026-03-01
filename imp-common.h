@@ -206,6 +206,12 @@ typedef struct{
 	/* rtsp settings */
 	int rtsp_enabled;
 	int rtsp_port;
+	/* grafana metrics push settings */
+	int grafana_enabled;
+	char grafana_push_url[512];
+	char grafana_username[64];
+	char grafana_api_key[256];
+	int grafana_push_interval_ms;
 } app_config_t;
 
 int app_config_parse(const char *ini_path, app_config_t *config);
