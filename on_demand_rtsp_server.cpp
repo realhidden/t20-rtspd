@@ -190,13 +190,13 @@ int main(int argc, char** argv) {
 
 	/* Step 6: Main capture loop */
 	printf("Entering main capture loop\n");
+	IMPEncoderStream stream;
 	while (g_running) {
 		/* Poll for encoded stream */
 		ret = IMP_Encoder_PollingStream(0, 100);
 		if (ret < 0)
 			continue; /* timeout, try again */
 
-		IMPEncoderStream stream;
 		ret = IMP_Encoder_GetStream(0, &stream, 1);
 		if (ret < 0) {
 			printf("IMP_Encoder_GetStream() failed\n");

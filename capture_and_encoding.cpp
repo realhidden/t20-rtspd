@@ -9,6 +9,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <sys/uio.h>
 
 #include <ini.h>
 
@@ -45,18 +46,23 @@ IMPRgnHandle *prHander;
 
 int destory()
 {
-
 	int ret, i;
 
-	/* Exit sequence as follow */
-	/* Step.a Stream Off */
+	/* Step.a Stop receiving pictures before teardown */
+	ret = IMP_Encoder_StopRecvPic(0);
+	if (ret < 0) {
+		printf("IMP_Encoder_StopRecvPic() failed\n");
+		return -1;
+	}
+
+	/* Step.b Stream Off */
 	ret = sample_framesource_streamoff();
 	if (ret < 0) {
 		printf("FrameSource StreamOff failed\n");
 		return -1;
 	}
 
-	/* Step.b UnBind */
+	/* Step.c UnBind */
 	for (i = 0; i < FS_CHN_NUM; i++) {
 		if (chn[i].enable) {
 			ret = IMP_System_UnBind(&chn[i].framesource_chn, &chn[i].imp_encoder);
@@ -67,30 +73,24 @@ int destory()
 		}
 	}
 
-	/* Step.c Encoder exit */
+	/* Step.d Encoder exit */
 	ret = sample_encoder_exit();
 	if (ret < 0) {
 		printf("Encoder exit failed\n");
 		return -1;
 	}
 
-	/* Step.d FrameSource exit */
+	/* Step.e FrameSource exit */
 	ret = sample_framesource_exit();
 	if (ret < 0) {
 		printf("FrameSource exit failed\n");
 		return -1;
 	}
 
-	/* Step.e System exit */
+	/* Step.f System exit */
 	ret = sample_system_exit();
 	if (ret < 0) {
 		printf("sample_system_exit() failed\n");
-		return -1;
-	}
-
-	ret = IMP_Encoder_StopRecvPic(0);
-	if (ret < 0) {
-		printf("IMP_Encoder_StopRecvPic() failed\n");
 		return -1;
 	}
 
@@ -99,16 +99,20 @@ int destory()
 
 int save_stream_to_fd(int fd, IMPEncoderStream *stream)
 {
-	unsigned int ret;
 	int i, nr_pack = stream->packCount;
+	struct iovec iov[nr_pack];
+	size_t total = 0;
 
 	for (i = 0; i < nr_pack; i++) {
-		ret = write(fd, (void *)stream->pack[i].virAddr,
-					stream->pack[i].length);
-		if (ret != stream->pack[i].length){
-			printf("stream write error:%s\n", strerror(errno));
-			return -1;
-		}
+		iov[i].iov_base = (void *)stream->pack[i].virAddr;
+		iov[i].iov_len = stream->pack[i].length;
+		total += stream->pack[i].length;
+	}
+
+	ssize_t written = writev(fd, iov, nr_pack);
+	if (written < 0 || (size_t)written != total) {
+		printf("stream writev error:%s\n", strerror(errno));
+		return -1;
 	}
 
 	return 0;
