@@ -292,7 +292,6 @@ static void do_push(void)
 
 static void *grafana_push_thread(void *arg)
 {
-	int consecutive_failures = 0;
 	int push_count = 0;
 	(void)arg;
 
