@@ -97,7 +97,7 @@ int destory()
 	return 0;
 }
 
-static int save_stream(int fd, IMPEncoderStream *stream)
+int save_stream_to_fd(int fd, IMPEncoderStream *stream)
 {
 	unsigned int ret;
 	int i, nr_pack = stream->packCount;
@@ -114,55 +114,13 @@ static int save_stream(int fd, IMPEncoderStream *stream)
 	return 0;
 }
 
-static int get_h264_stream(int fd, int chn)
+int start_encoder_receiving(int chn)
 {
-	int ret;
-	
-	/* Polling H264 Stream, set timeout as 1000msec */
-	ret = IMP_Encoder_PollingStream(chn, 100);
+	int ret = IMP_Encoder_StartRecvPic(chn);
 	if (ret < 0) {
-		printf("Polling stream timeout\n");
-	}
-
-	IMPEncoderStream stream;
-	/* Get H264 Stream */
-	ret = IMP_Encoder_GetStream(chn, &stream, 1);
-	if (ret < 0) {
-		printf("IMP_Encoder_GetStream() failed\n");
+		printf("IMP_Encoder_StartRecvPic(%d) failed\n", chn);
 		return -1;
 	}
-	
-	ret = save_stream(fd, &stream);
-	if (ret < 0) {
-		close(fd);
-		return ret;
-	}
-	
-	IMP_Encoder_ReleaseStream(chn, &stream);
-
-	return 0;
-}
-
-void *get_stream(int fd, int chn)
-{
-	int  ret;
-	
-	ret = IMP_Encoder_StartRecvPic(chn);
-	if (ret < 0){
-		printf("IMP_Encoder_StartRecvPic(%d) failed\n", 1);
-		return NULL;
-	}
-	ret = get_h264_stream(fd, chn);
-	if (ret < 0) {
-		printf("Get H264 stream failed\n");
-		return NULL;
-	}
-/*	ret = IMP_Encoder_StopRecvPic(chn);
-	if (ret < 0) {
-		printf("IMP_Encoder_StopRecvPic() failed\n");
-		return NULL;
-	}
-*/
 	return 0;
 }
 
