@@ -512,9 +512,25 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->grafana_push_interval_ms = 60000;
 
 	if (ini_parse(ini_path, handler, config) < 0) {
-		printf("Can't load %s\n", ini_path);
+		printf("[config] Can't load %s\n", ini_path);
 		return -1;
 	}
+
+	printf("[config] Loaded %s\n", ini_path);
+	printf("[config] Encoding: type=%d qp=%d-%d bitrate=%.0f profile=%d\n",
+			config->ENCODING_TYPE, config->MINQP, config->MAXQP,
+			config->BITRATE, config->PROFILE);
+	printf("[config] Resolution: %dx%d @ %d/%d fps\n",
+			config->WIDTH, config->HEIGHT, config->RATENUM, config->RATEDEN);
+	printf("[config] RTSP: enabled=%d port=%d\n",
+			config->rtsp_enabled, config->rtsp_port);
+	printf("[config] Recording: enabled=%d dir=%s chunk=%ds threshold=%d%%\n",
+			config->recording_enabled, config->recording_output_dir,
+			config->recording_chunk_duration, config->recording_disk_threshold);
+	printf("[config] Grafana: enabled=%d interval=%dms url=%s\n",
+			config->grafana_enabled, config->grafana_push_interval_ms,
+			config->grafana_push_url);
+
 	return 0;
 }
 

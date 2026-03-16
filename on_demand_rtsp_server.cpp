@@ -24,6 +24,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 #include "capture_and_encoding.h"
 #include "imp-common.h"
@@ -61,7 +62,7 @@ int main(int argc, char** argv) {
 		write(ver_fd, VERSION, sizeof(VERSION));
 		close(ver_fd);
 	}
-	printf("t20-rtspd version: %s\n", VERSION);
+	printf("t20-rtspd version: %s (pid %d)\n", VERSION, getpid());
 
 	/* Install signal handlers for clean shutdown */
 	signal(SIGINT, signal_handler);
@@ -78,30 +79,34 @@ int main(int argc, char** argv) {
 	sample_encoder_set_config(&config);
 
 	/* Step 2: Initialize IMP SDK (capture and encoding) */
+	printf("[main] Initializing IMP SDK...\n");
 	ret = capture_and_encoding();
 	if (ret < 0) {
-		printf("capture_and_encoding() failed\n");
+		printf("[main] capture_and_encoding() failed\n");
 		return 1;
 	}
+	printf("[main] IMP SDK initialized\n");
 
 	/* Step 3: If RTSP enabled, create FIFO and fork child for live555 */
 	if (config.rtsp_enabled) {
-		printf("RTSP server enabled on port %d\n", config.rtsp_port);
+		printf("[main] RTSP enabled, creating FIFO %s\n", inputFileName);
 
 		unlink(inputFileName);
 		if (mkfifo(inputFileName, 0777) < 0) {
-			printf("mkfifo failed\n");
+			printf("[main] mkfifo(%s) failed: %s\n", inputFileName, strerror(errno));
 			return 1;
 		}
 
+		printf("[main] Forking RTSP server child...\n");
 		pid_t pid = fork();
 		if (pid < 0) {
-			printf("fork() failed\n");
+			printf("[main] fork() failed: %s\n", strerror(errno));
 			return 1;
 		}
 
 		if (pid == 0) {
 			/* Child process: RTSP server */
+			printf("[rtsp] Child started (pid %d)\n", getpid());
 			TaskScheduler* scheduler = BasicTaskScheduler::createNew();
 			UsageEnvironment* env = BasicUsageEnvironment::createNew(*scheduler);
 
@@ -135,16 +140,19 @@ int main(int argc, char** argv) {
 		}
 
 		/* Parent process continues: open FIFO for writing */
+		printf("[main] Parent (pid %d), RTSP child pid %d\n", getpid(), pid);
 		fifo_fd = open(inputFileName, O_RDWR | O_CREAT | O_TRUNC, 0777);
 		if (fifo_fd < 0) {
-			printf("Failed to open FIFO for writing\n");
+			printf("[main] Failed to open FIFO: %s\n", strerror(errno));
 			return 1;
 		}
+		printf("[main] FIFO fd=%d opened for writing\n", fifo_fd);
 	} else {
-		printf("RTSP server disabled\n");
+		printf("[main] RTSP server disabled\n");
 	}
 
 	/* Step 4: Init MKV recorder */
+	printf("[main] Recording %s\n", config.recording_enabled ? "enabled" : "disabled");
 	if (config.recording_enabled) {
 		mkv_recorder_config_t rec_config;
 		rec_config.enabled = config.recording_enabled;
@@ -159,9 +167,10 @@ int main(int argc, char** argv) {
 
 		ret = mkv_recorder_init(&rec_config);
 		if (ret < 0) {
-			printf("mkv_recorder_init() failed\n");
+			printf("[main] mkv_recorder_init() failed\n");
 			return 1;
 		}
+		printf("[main] MKV recorder initialized\n");
 	}
 
 	/* Step 4b: Init Grafana metrics push */
@@ -182,24 +191,35 @@ int main(int argc, char** argv) {
 	}
 
 	/* Step 5: Start receiving encoded frames */
+	printf("[main] Starting encoder receive...\n");
 	ret = start_encoder_receiving(0);
 	if (ret < 0) {
-		printf("start_encoder_receiving() failed\n");
+		printf("[main] start_encoder_receiving() failed\n");
 		return 1;
 	}
 
 	/* Step 6: Main capture loop */
-	printf("Entering main capture loop\n");
+	printf("[main] Entering main capture loop\n");
 	IMPEncoderStream stream;
+	unsigned long frame_count = 0;
+	unsigned long poll_timeouts = 0;
+	unsigned long getstream_errors = 0;
+	time_t last_stats_time = 0;
+	time(&last_stats_time);
+
 	while (g_running) {
 		/* Poll for encoded stream */
 		ret = IMP_Encoder_PollingStream(0, 100);
-		if (ret < 0)
+		if (ret < 0) {
+			poll_timeouts++;
 			continue; /* timeout, try again */
+		}
 
 		ret = IMP_Encoder_GetStream(0, &stream, 1);
 		if (ret < 0) {
-			printf("IMP_Encoder_GetStream() failed\n");
+			getstream_errors++;
+			if (getstream_errors <= 10 || (getstream_errors % 100) == 0)
+				printf("[main] IMP_Encoder_GetStream() failed (count=%lu)\n", getstream_errors);
 			continue;
 		}
 
@@ -212,10 +232,20 @@ int main(int argc, char** argv) {
 			save_stream_to_fd(fifo_fd, &stream);
 
 		IMP_Encoder_ReleaseStream(0, &stream);
+		frame_count++;
+
+		/* Periodic stats every 60 seconds */
+		time_t now;
+		time(&now);
+		if (now - last_stats_time >= 60) {
+			printf("[main] Stats: frames=%lu poll_timeouts=%lu getstream_errors=%lu\n",
+					frame_count, poll_timeouts, getstream_errors);
+			last_stats_time = now;
+		}
 	}
 
 	/* Clean shutdown */
-	printf("Shutting down...\n");
+	printf("[main] Shutting down (frames=%lu)...\n", frame_count);
 
 	if (config.grafana_enabled)
 		grafana_push_shutdown();

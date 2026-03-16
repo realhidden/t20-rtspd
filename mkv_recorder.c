@@ -206,8 +206,11 @@ static int inspect_frame(IMPEncoderStream *stream)
 		}
 	}
 
-	if (g_sps_data && g_pps_data)
+	if (g_sps_data && g_pps_data && !g_got_extradata) {
 		g_got_extradata = 1;
+		printf("[%s] Got SPS (%d bytes) + PPS (%d bytes)\n",
+				TAG, g_sps_size, g_pps_size);
+	}
 
 	return idr;
 }
@@ -277,7 +280,10 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 	/* Check if we need to rotate chunks */
 	if (g_fmt_ctx && idr) {
 		time(&now);
-		if ((int64_t)now - g_chunk_start_time >= g_config.chunk_duration) {
+		int64_t chunk_age = (int64_t)now - g_chunk_start_time;
+		if (chunk_age >= g_config.chunk_duration) {
+			printf("[%s] Rotating chunk (age=%llds, frames=%lld)\n",
+					TAG, (long long)chunk_age, (long long)g_frame_count);
 			close_current_chunk();
 		}
 	}
