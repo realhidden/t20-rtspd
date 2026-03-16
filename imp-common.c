@@ -491,6 +491,20 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->grafana_api_key[sizeof(pconfig->grafana_api_key) - 1] = '\0';
 	} else if (MATCH("grafana", "GRAFANA_PUSH_INTERVAL_MS")){
 		pconfig->grafana_push_interval_ms = atoi(value);
+	} else if (MATCH("upload", "ENABLED")){
+		pconfig->upload_enabled = atoi(value);
+	} else if (MATCH("upload", "URL")){
+		strncpy(pconfig->upload_url, value, sizeof(pconfig->upload_url) - 1);
+		pconfig->upload_url[sizeof(pconfig->upload_url) - 1] = '\0';
+	} else if (MATCH("upload", "TOKEN")){
+		strncpy(pconfig->upload_token, value, sizeof(pconfig->upload_token) - 1);
+		pconfig->upload_token[sizeof(pconfig->upload_token) - 1] = '\0';
+	} else if (MATCH("upload", "RATE_LIMIT_KBPS")){
+		pconfig->upload_rate_limit_kbps = atoi(value);
+	} else if (MATCH("upload", "SCAN_INTERVAL_S")){
+		pconfig->upload_scan_interval_s = atoi(value);
+	} else if (MATCH("upload", "BUFFER_IN_MEMORY")){
+		pconfig->upload_buffer_in_memory = atoi(value);
 	} else {
 		return 0;
 	}
@@ -510,6 +524,10 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->rtsp_port = 554;
 	config->grafana_enabled = 0;
 	config->grafana_push_interval_ms = 60000;
+	config->upload_enabled = 0;
+	config->upload_rate_limit_kbps = 20;
+	config->upload_scan_interval_s = 60;
+	config->upload_buffer_in_memory = 0;
 
 	if (ini_parse(ini_path, handler, config) < 0) {
 		printf("[config] Can't load %s\n", ini_path);
@@ -530,6 +548,10 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	printf("[config] Grafana: enabled=%d interval=%dms url=%s\n",
 			config->grafana_enabled, config->grafana_push_interval_ms,
 			config->grafana_push_url);
+	printf("[config] Upload: enabled=%d rate=%dKB/s scan=%ds buffer=%d url=%s\n",
+			config->upload_enabled, config->upload_rate_limit_kbps,
+			config->upload_scan_interval_s, config->upload_buffer_in_memory,
+			config->upload_url);
 
 	return 0;
 }

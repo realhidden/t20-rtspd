@@ -212,6 +212,13 @@ typedef struct{
 	char grafana_username[64];
 	char grafana_api_key[256];
 	int grafana_push_interval_ms;
+	/* file upload settings */
+	int upload_enabled;
+	char upload_url[512];
+	char upload_token[256];
+	int upload_rate_limit_kbps;
+	int upload_scan_interval_s;
+	int upload_buffer_in_memory;
 } app_config_t;
 
 int app_config_parse(const char *ini_path, app_config_t *config);

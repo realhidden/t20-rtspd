@@ -367,6 +367,5 @@ void grafana_push_shutdown(void)
 	printf("[%s] Shutting down\n", TAG);
 	g_running = 0;
 	pthread_join(g_thread, NULL);
-	https_client_cleanup();
 	printf("[%s] Shutdown complete\n", TAG);
 }
