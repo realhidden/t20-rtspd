@@ -5,13 +5,13 @@
 #include <pthread.h>
 #include <time.h>
 #include <sys/statvfs.h>
-#include <sys/wait.h>
 
 #include <imp/imp_log.h>
 #include <imp/imp_isp.h>
 #include <imp/imp_encoder.h>
 
 #include "grafana_push.h"
+#include "https_client.h"
 #include "mkv_recorder.h"
 
 #define TAG "grafana_push"
@@ -249,7 +249,7 @@ static int collect_recording_metrics(char *buf, int buf_size, long long ts_ns)
 		g_host_tag, frame_count, chunk_age, disk_pct, free_kb, ts_ns);
 }
 
-/* --- Push via wget --- */
+/* --- Push via native HTTPS --- */
 
 static void do_push(void)
 {
@@ -267,33 +267,16 @@ static void do_push(void)
 	offset += collect_system_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
 	offset += collect_net_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
 
-	/* Write payload to temp file */
-	FILE *f = fopen("/tmp/grafana_payload.txt", "w");
-	if (!f) {
-		printf("[%s] Failed to write payload file\n", TAG);
-		return;
-	}
-	fwrite(payload, 1, offset, f);
-	fclose(f);
+	const char *headers[] = {
+		g_auth_header,
+		"Content-Type: text/plain",
+		NULL
+	};
 
-	/* Build wget command — use BusyBox-compatible flags:
-	 *   -S: show server response (for debugging)
-	 *   -O -: output to stdout (discard)
-	 *   --post-file: send payload (BusyBox >= 1.26 supports this)
-	 *   --header: set custom headers
-	 */
-	char cmd[1280];
-	snprintf(cmd, sizeof(cmd),
-		"wget --post-file=/tmp/grafana_payload.txt "
-		"--header='%s' "
-		"--header='Content-Type: text/plain' "
-		"-T 10 -O /dev/null '%s' 2>&1",
-		g_auth_header, g_config.push_url);
-
-	int ret = system(cmd);
+	int http_status = 0;
+	int ret = https_post(g_config.push_url, headers, payload, offset, &http_status);
 	if (ret != 0)
-		printf("[%s] wget failed: exit=%d cmd: %s\n", TAG,
-				WEXITSTATUS(ret), cmd);
+		printf("[%s] Push failed (http_status=%d)\n", TAG, http_status);
 }
 
 /* --- Thread function --- */
@@ -355,6 +338,13 @@ int grafana_push_init(const grafana_push_config_t *config)
 	base64_encode(credentials, strlen(credentials), b64, sizeof(b64));
 	snprintf(g_auth_header, sizeof(g_auth_header), "Authorization: Basic %s", b64);
 
+	/* Initialize HTTPS client */
+	int init_ret = https_client_init();
+	if (init_ret < 0) {
+		printf("[%s] https_client_init() failed\n", TAG);
+		return -1;
+	}
+
 	/* Start push thread */
 	g_running = 1;
 	int ret = pthread_create(&g_thread, NULL, grafana_push_thread, NULL);
@@ -377,5 +367,6 @@ void grafana_push_shutdown(void)
 	printf("[%s] Shutting down\n", TAG);
 	g_running = 0;
 	pthread_join(g_thread, NULL);
+	https_client_cleanup();
 	printf("[%s] Shutdown complete\n", TAG);
 }

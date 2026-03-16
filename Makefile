@@ -1,12 +1,13 @@
 INCLUDES 	 = -I./include/live555/usageEnvironment/ -I./include/live555/groupsock/ \
 				-I./include/live555/liveMedia/ -I./include/live555/basicUsageEnvironment \
-				-I./include/imp_sys -I./include/ffmpeg
+				-I./include/imp_sys -I./include/ffmpeg -I./include
 LIVE555_LIBS =  ./lib/livelib/libliveMedia.a ./lib/livelib/libgroupsock.a \
 				./lib/livelib/libBasicUsageEnvironment.a ./lib/livelib/libUsageEnvironment.a
 SDK_LIB_DIR	=  ./lib/imp_sys/uclibc
 IMP_LIBS	= $(SDK_LIB_DIR)/libimp.so $(SDK_LIB_DIR)/libalog.so
 FFMPEG_LIBS	=  ./lib/ffmpeg/libavformat.a ./lib/ffmpeg/libavcodec.a ./lib/ffmpeg/libavutil.a
-LIBS	=  $(LIVE555_LIBS) $(IMP_LIBS) $(FFMPEG_LIBS)
+MBEDTLS_LIBS	=  ./lib/mbedtls/libmbedtls.a ./lib/mbedtls/libmbedx509.a ./lib/mbedtls/libmbedcrypto.a
+LIBS	=  $(LIVE555_LIBS) $(IMP_LIBS) $(FFMPEG_LIBS) $(MBEDTLS_LIBS)
 
 CROSS_COMPILE?= mips-linux-uclibc-gnu-
 
@@ -23,7 +24,7 @@ LINK 		 =  $(CROSS_COMPILE)g++ -o
 #LINK_OPTS    =  -ldl  -lm -lpthread -ldl -g
 LINK_OPTS    =  -lpthread -lm -lrt -ldl
 CONSOLE_LINK_OPTS = $(LINK_OPTS)
-LINK_OBJ	 = ini.o pwm.o imp-common.o capture_and_encoding.o mkv_recorder.o grafana_push.o on_demand_rtsp_server.o
+LINK_OBJ	 = ini.o pwm.o imp-common.o capture_and_encoding.o mkv_recorder.o grafana_push.o https_client.o on_demand_rtsp_server.o
 
 APP = t20-rtspd
 
