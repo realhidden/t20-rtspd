@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <sys/statvfs.h>
+#include <sys/wait.h>
 
 #include <imp/imp_log.h>
 #include <imp/imp_isp.h>
@@ -285,7 +286,9 @@ static void do_push(void)
 		g_auth_header, g_config.push_url);
 
 	int ret = system(cmd);
-	(void)ret; /* caller tracks success/failure via return */
+	if (ret != 0)
+		printf("[%s] wget failed: exit=%d (signal=%d)\n", TAG,
+				WEXITSTATUS(ret), WIFSIGNALED(ret) ? WTERMSIG(ret) : 0);
 }
 
 /* --- Thread function --- */
@@ -295,17 +298,15 @@ static void *grafana_push_thread(void *arg)
 	int push_count = 0;
 	(void)arg;
 
-	printf("[%s] Metrics push thread started (interval %d ms)\n",
-			TAG, g_config.push_interval_ms);
+	printf("[%s] Metrics push thread started (interval %d ms, url=%s)\n",
+			TAG, g_config.push_interval_ms, g_config.push_url);
 
 	while (g_running) {
 		do_push();
-
-		/* Check if push succeeded by looking at wget exit code */
-		/* For simplicity, we check by trying to stat the output */
-		/* The system() return value in do_push is local, so we just
-		 * trust the logging approach: count pushes */
 		push_count++;
+
+		if (push_count == 1 || (push_count % 60) == 0)
+			printf("[%s] Push count: %d\n", TAG, push_count);
 
 		/* Sleep in 1s increments for quick shutdown */
 		int remaining_ms = g_config.push_interval_ms;

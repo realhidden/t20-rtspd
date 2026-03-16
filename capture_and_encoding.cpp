@@ -48,17 +48,19 @@ int destory()
 {
 	int ret, i;
 
+	printf("[capture] Teardown starting...\n");
+
 	/* Step.a Stop receiving pictures before teardown */
 	ret = IMP_Encoder_StopRecvPic(0);
 	if (ret < 0) {
-		printf("IMP_Encoder_StopRecvPic() failed\n");
+		printf("[capture] IMP_Encoder_StopRecvPic() failed: %d\n", ret);
 		return -1;
 	}
 
 	/* Step.b Stream Off */
 	ret = sample_framesource_streamoff();
 	if (ret < 0) {
-		printf("FrameSource StreamOff failed\n");
+		printf("[capture] FrameSource StreamOff failed: %d\n", ret);
 		return -1;
 	}
 
@@ -67,7 +69,7 @@ int destory()
 		if (chn[i].enable) {
 			ret = IMP_System_UnBind(&chn[i].framesource_chn, &chn[i].imp_encoder);
 			if (ret < 0) {
-				printf("UnBind FrameSource channel%d and Encoder failed\n",i);
+				printf("[capture] UnBind channel%d failed: %d\n", i, ret);
 				return -1;
 			}
 		}
@@ -76,24 +78,25 @@ int destory()
 	/* Step.d Encoder exit */
 	ret = sample_encoder_exit();
 	if (ret < 0) {
-		printf("Encoder exit failed\n");
+		printf("[capture] Encoder exit failed: %d\n", ret);
 		return -1;
 	}
 
 	/* Step.e FrameSource exit */
 	ret = sample_framesource_exit();
 	if (ret < 0) {
-		printf("FrameSource exit failed\n");
+		printf("[capture] FrameSource exit failed: %d\n", ret);
 		return -1;
 	}
 
 	/* Step.f System exit */
 	ret = sample_system_exit();
 	if (ret < 0) {
-		printf("sample_system_exit() failed\n");
+		printf("[capture] sample_system_exit() failed: %d\n", ret);
 		return -1;
 	}
 
+	printf("[capture] Teardown complete\n");
 	return 0;
 }
 
@@ -224,7 +227,7 @@ int capture_and_encoding()
 	int i = 0;
 
 	
-	printf(">>>>>capture_and_encoding start\n");
+	printf("[capture] Initializing pipeline...\n");
 
 	// undocumented functions to increase pool size
 #ifdef ENABLED_OSD
@@ -234,16 +237,18 @@ int capture_and_encoding()
 
 	ret = sample_system_init();
 	if (ret < 0) {
-		printf("IMP_System_Init() failed\n");
+		printf("[capture] IMP_System_Init() failed\n");
 		return -1;
 	}
+	printf("[capture] IMP system initialized\n");
 
 	/* Step.2 FrameSource init */
 	ret = sample_framesource_init();
 	if (ret < 0) {
-		printf("FrameSource init failed\n");
+		printf("[capture] FrameSource init failed\n");
 		return -1;
 	}
+	printf("[capture] FrameSource initialized\n");
 
 	for (i = 0; i < FS_CHN_NUM; i++) {
 		if (chn[i].enable) {
@@ -258,9 +263,10 @@ int capture_and_encoding()
 	/* Step.3 Encoder init */
 	ret = sample_encoder_init();
 	if (ret < 0) {
-		printf("Encoder init failed\n");
+		printf("[capture] Encoder init failed\n");
 		return -1;
 	}
+	printf("[capture] Encoder initialized\n");
 
 #ifdef ENABLED_OSD
 	// Create the group for the OSD
@@ -329,19 +335,21 @@ int capture_and_encoding()
 	/* Step.6 Stream On */
 	ret = sample_framesource_streamon();
 	if (ret < 0) {
-		printf("ImpStreamOn failed\n");
+		printf("[capture] FrameSource stream-on failed\n");
 		return -1;
 	}
+	printf("[capture] FrameSource streaming\n");
 
 
 	// start thread for activating night mode & IR cut filter
 #ifdef NIGHTMODE_SWITCH
-    printf("Night mode switch on\n");
+    printf("[capture] Night mode thread starting\n");
 	pthread_t thread_info;
 	pthread_create(&thread_info, NULL, sample_soft_photosensitive_ctrl, NULL);
 #else
-    printf("Night mode switch off\n");
+    printf("[capture] Night mode disabled at compile time\n");
 #endif
 
+	printf("[capture] Pipeline ready\n");
 	return 0;
 }
