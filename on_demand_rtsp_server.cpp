@@ -30,6 +30,8 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "imp-common.h"
 #include "mkv_recorder.h"
 #include "grafana_push.h"
+#include "file_uploader.h"
+#include "https_client.h"
 #include "version.h"
 
 static volatile int g_running = 1;
@@ -192,7 +194,24 @@ int main(int argc, char** argv) {
 
 		ret = grafana_push_init(&gf_config);
 		if (ret < 0)
-			printf("grafana_push_init() failed (non-fatal)\n");
+			printf("[main] grafana_push_init() failed (non-fatal)\n");
+	}
+
+	/* Step 4c: Init file uploader */
+	if (config.upload_enabled) {
+		file_uploader_config_t ul_config;
+		memset(&ul_config, 0, sizeof(ul_config));
+		ul_config.enabled = config.upload_enabled;
+		strncpy(ul_config.upload_url, config.upload_url, sizeof(ul_config.upload_url) - 1);
+		strncpy(ul_config.upload_token, config.upload_token, sizeof(ul_config.upload_token) - 1);
+		strncpy(ul_config.scan_dir, config.recording_output_dir, sizeof(ul_config.scan_dir) - 1);
+		ul_config.rate_limit_kbps = config.upload_rate_limit_kbps;
+		ul_config.scan_interval_s = config.upload_scan_interval_s;
+		ul_config.buffer_in_memory = config.upload_buffer_in_memory;
+
+		ret = file_uploader_init(&ul_config);
+		if (ret < 0)
+			printf("[main] file_uploader_init() failed (non-fatal)\n");
 	}
 
 	/* Step 5: Start receiving encoded frames */
@@ -252,6 +271,9 @@ int main(int argc, char** argv) {
 	/* Clean shutdown */
 	printf("[main] Shutting down (frames=%lu)...\n", frame_count);
 
+	if (config.upload_enabled)
+		file_uploader_shutdown();
+
 	if (config.grafana_enabled)
 		grafana_push_shutdown();
 
@@ -262,6 +284,8 @@ int main(int argc, char** argv) {
 		close(fifo_fd);
 
 	IMP_Encoder_StopRecvPic(0);
+
+	https_client_cleanup();
 
 	return 0;
 }

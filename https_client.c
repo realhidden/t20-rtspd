@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/time.h>
 
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/ssl.h>
@@ -29,6 +31,9 @@ int https_client_init(void)
 {
 	int ret;
 	const char *pers = "t20_https";
+
+	if (g_initialized)
+		return 0;
 
 	mbedtls_entropy_init(&g_entropy);
 	mbedtls_ctr_drbg_init(&g_ctr_drbg);
@@ -288,6 +293,183 @@ int https_post(const char *url, const char **headers,
 	return -1;
 
 cleanup:
+	mbedtls_ssl_free(&ssl);
+	mbedtls_net_free(&server_fd);
+	return -1;
+}
+
+/* Helper: get current time in microseconds */
+static long long get_time_us(void)
+{
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return (long long)tv.tv_sec * 1000000LL + tv.tv_usec;
+}
+
+#define UPLOAD_CHUNK_SIZE 8192
+
+int https_post_file(const char *url, const char **headers,
+                    const char *filepath, int rate_limit_kbps,
+                    int *http_status)
+{
+	int ret;
+	mbedtls_net_context server_fd;
+	mbedtls_ssl_context ssl;
+	char host[256], port[8], path[512];
+	char request[2048];
+	char response[RESPONSE_BUF_SIZE];
+	int req_len;
+	struct stat st;
+	FILE *fp = NULL;
+
+	if (!g_initialized) {
+		printf("[%s] Not initialized\n", TAG);
+		return -1;
+	}
+
+	if (http_status)
+		*http_status = 0;
+
+	/* Get file size */
+	if (stat(filepath, &st) != 0) {
+		printf("[%s] stat(%s) failed\n", TAG, filepath);
+		return -1;
+	}
+	long file_size = (long)st.st_size;
+
+	/* Parse URL */
+	if (parse_url(url, host, sizeof(host), port, sizeof(port),
+				path, sizeof(path)) < 0) {
+		printf("[%s] Failed to parse URL: %s\n", TAG, url);
+		return -1;
+	}
+
+	/* Open file */
+	fp = fopen(filepath, "rb");
+	if (!fp) {
+		printf("[%s] fopen(%s) failed\n", TAG, filepath);
+		return -1;
+	}
+
+	mbedtls_net_init(&server_fd);
+	mbedtls_ssl_init(&ssl);
+
+	/* Connect TCP */
+	ret = mbedtls_net_connect(&server_fd, host, port, MBEDTLS_NET_PROTO_TCP);
+	if (ret != 0) {
+		printf("[%s] TCP connect to %s:%s failed: -0x%04x\n", TAG, host, port, -ret);
+		goto cleanup_file;
+	}
+
+	/* Setup TLS */
+	ret = mbedtls_ssl_setup(&ssl, &g_ssl_conf);
+	if (ret != 0) {
+		printf("[%s] ssl_setup failed: -0x%04x\n", TAG, -ret);
+		goto cleanup_file;
+	}
+
+	mbedtls_ssl_set_hostname(&ssl, host);
+	mbedtls_ssl_set_bio(&ssl, &server_fd,
+			mbedtls_net_send, NULL, mbedtls_net_recv_timeout);
+
+	/* TLS handshake */
+	while ((ret = mbedtls_ssl_handshake(&ssl)) != 0) {
+		if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+			printf("[%s] TLS handshake failed: -0x%04x\n", TAG, -ret);
+			goto cleanup_file;
+		}
+	}
+
+	/* Build HTTP request */
+	req_len = snprintf(request, sizeof(request),
+		"POST %s HTTP/1.1\r\n"
+		"Host: %s\r\n"
+		"Content-Length: %ld\r\n"
+		"Connection: close\r\n",
+		path, host, file_size);
+
+	/* Append custom headers */
+	if (headers) {
+		int i;
+		for (i = 0; headers[i] != NULL; i++) {
+			req_len += snprintf(request + req_len, sizeof(request) - req_len,
+				"%s\r\n", headers[i]);
+		}
+	}
+	req_len += snprintf(request + req_len, sizeof(request) - req_len, "\r\n");
+
+	/* Send headers */
+	ret = mbedtls_ssl_write(&ssl, (const unsigned char *)request, req_len);
+	if (ret < 0) {
+		printf("[%s] ssl_write (headers) failed: -0x%04x\n", TAG, -ret);
+		goto cleanup_file;
+	}
+
+	/* Stream file with rate limiting */
+	{
+		unsigned char buf[UPLOAD_CHUNK_SIZE];
+		long bytes_sent = 0;
+		long long start_us = get_time_us();
+		size_t n;
+
+		while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+			size_t written = 0;
+			while (written < n) {
+				ret = mbedtls_ssl_write(&ssl, buf + written, n - written);
+				if (ret < 0) {
+					printf("[%s] ssl_write (file) failed at %ld/%ld: -0x%04x\n",
+							TAG, bytes_sent, file_size, -ret);
+					goto cleanup_file;
+				}
+				written += ret;
+			}
+			bytes_sent += n;
+
+			/* Rate limiting */
+			if (rate_limit_kbps > 0) {
+				long long expected_us = (bytes_sent * 1000000LL) / ((long long)rate_limit_kbps * 1024);
+				long long elapsed_us = get_time_us() - start_us;
+				if (expected_us > elapsed_us)
+					usleep((unsigned int)(expected_us - elapsed_us));
+			}
+		}
+
+		printf("[%s] Sent %ld bytes from %s\n", TAG, bytes_sent, filepath);
+	}
+
+	fclose(fp);
+	fp = NULL;
+
+	/* Read response */
+	memset(response, 0, sizeof(response));
+	ret = mbedtls_ssl_read(&ssl, (unsigned char *)response, sizeof(response) - 1);
+	if (ret < 0) {
+		printf("[%s] ssl_read failed: -0x%04x\n", TAG, -ret);
+		goto cleanup_net;
+	}
+
+	/* Parse HTTP status */
+	int status = 0;
+	if (ret > 12 && strncmp(response, "HTTP/1.", 7) == 0)
+		status = atoi(response + 9);
+
+	if (http_status)
+		*http_status = status;
+
+	mbedtls_ssl_close_notify(&ssl);
+	mbedtls_ssl_free(&ssl);
+	mbedtls_net_free(&server_fd);
+
+	if (status >= 200 && status < 300)
+		return 0;
+
+	printf("[%s] HTTP %d from %s%s\n", TAG, status, host, path);
+	return -1;
+
+cleanup_file:
+	if (fp)
+		fclose(fp);
+cleanup_net:
 	mbedtls_ssl_free(&ssl);
 	mbedtls_net_free(&server_fd);
 	return -1;
