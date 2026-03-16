@@ -55,6 +55,11 @@ int main(int argc, char** argv) {
 	char const* inputFileName = "/tmp/h264_fifo";
 	int fifo_fd = -1;
 
+	/* Disable stdout buffering so logs appear immediately in log files,
+	 * even if the process crashes before flushing */
+	setvbuf(stdout, NULL, _IONBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
+
 	/* Write version file */
 	char const* versionFileName = "/tmp/version";
 	int ver_fd = open(versionFileName, O_RDWR | O_CREAT | O_TRUNC, 0777);
