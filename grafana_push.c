@@ -276,19 +276,24 @@ static void do_push(void)
 	fwrite(payload, 1, offset, f);
 	fclose(f);
 
-	/* Build wget command */
+	/* Build wget command — use BusyBox-compatible flags:
+	 *   -S: show server response (for debugging)
+	 *   -O -: output to stdout (discard)
+	 *   --post-file: send payload (BusyBox >= 1.26 supports this)
+	 *   --header: set custom headers
+	 */
 	char cmd[1280];
 	snprintf(cmd, sizeof(cmd),
 		"wget --post-file=/tmp/grafana_payload.txt "
 		"--header='%s' "
 		"--header='Content-Type: text/plain' "
-		"-T 10 -q -O /dev/null '%s' 2>/dev/null",
+		"-T 10 -O /dev/null '%s' 2>&1",
 		g_auth_header, g_config.push_url);
 
 	int ret = system(cmd);
 	if (ret != 0)
-		printf("[%s] wget failed: exit=%d (signal=%d)\n", TAG,
-				WEXITSTATUS(ret), WIFSIGNALED(ret) ? WTERMSIG(ret) : 0);
+		printf("[%s] wget failed: exit=%d cmd: %s\n", TAG,
+				WEXITSTATUS(ret), cmd);
 }
 
 /* --- Thread function --- */
