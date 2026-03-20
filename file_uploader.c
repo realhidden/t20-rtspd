@@ -24,6 +24,7 @@ static char g_camera_name[64];
 static char g_local_ip[32];
 static char g_wifi_ssid[64];
 static char g_auth_header[320];
+static adaptive_rate_t g_adaptive_rate;
 
 /* --- Read camera identity info --- */
 
@@ -177,9 +178,13 @@ static void *file_uploader_thread(void *arg)
 	int upload_count = 0;
 	(void)arg;
 
-	printf("[%s] Upload thread started (scan_dir=%s interval=%ds rate=%dKB/s)\n",
-			TAG, g_config.scan_dir, g_config.scan_interval_s,
-			g_config.rate_limit_kbps);
+	if (g_config.adaptive_rate)
+		printf("[%s] Upload thread started (scan_dir=%s interval=%ds rate=adaptive@80%%)\n",
+				TAG, g_config.scan_dir, g_config.scan_interval_s);
+	else
+		printf("[%s] Upload thread started (scan_dir=%s interval=%ds rate=%dKB/s)\n",
+				TAG, g_config.scan_dir, g_config.scan_interval_s,
+				g_config.rate_limit_kbps);
 
 	while (g_running) {
 		/* Refresh IP and SSID each round (can change) */
@@ -227,7 +232,9 @@ static void *file_uploader_thread(void *arg)
 
 			int http_status = 0;
 			int ret = https_post_file(g_config.upload_url, headers,
-					filepath, g_config.rate_limit_kbps, &http_status);
+					filepath, g_config.rate_limit_kbps,
+					g_config.adaptive_rate ? &g_adaptive_rate : NULL,
+					&http_status);
 
 			if (ret == 0) {
 				upload_count++;
@@ -286,6 +293,13 @@ int file_uploader_init(const file_uploader_config_t *config)
 		return -1;
 	}
 
+	/* Initialize adaptive rate if enabled */
+	if (g_config.adaptive_rate) {
+		adaptive_rate_init(&g_adaptive_rate, 80, g_config.rate_limit_kbps);
+		printf("[%s] Adaptive rate: target=80%% cap=%dKB/s\n",
+				TAG, g_config.rate_limit_kbps);
+	}
+
 	g_running = 1;
 	int ret = pthread_create(&g_thread, NULL, file_uploader_thread, NULL);
 	if (ret != 0) {
@@ -294,8 +308,10 @@ int file_uploader_init(const file_uploader_config_t *config)
 		return -1;
 	}
 
-	printf("[%s] Initialized: url=%s rate=%dKB/s\n",
-			TAG, g_config.upload_url, g_config.rate_limit_kbps);
+	printf("[%s] Initialized: url=%s rate=%s%dKB/s\n",
+			TAG, g_config.upload_url,
+			g_config.adaptive_rate ? "adaptive, cap=" : "",
+			g_config.rate_limit_kbps);
 	return 0;
 }
 

@@ -505,6 +505,8 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->upload_scan_interval_s = atoi(value);
 	} else if (MATCH("upload", "BUFFER_IN_MEMORY")){
 		pconfig->upload_buffer_in_memory = atoi(value);
+	} else if (MATCH("upload", "ADAPTIVE_RATE")){
+		pconfig->upload_adaptive_rate = atoi(value);
 	} else {
 		return 0;
 	}
@@ -528,6 +530,7 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->upload_rate_limit_kbps = 20;
 	config->upload_scan_interval_s = 60;
 	config->upload_buffer_in_memory = 0;
+	config->upload_adaptive_rate = 0;
 
 	if (ini_parse(ini_path, handler, config) < 0) {
 		printf("[config] Can't load %s\n", ini_path);
@@ -548,8 +551,10 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	printf("[config] Grafana: enabled=%d interval=%dms url=%s\n",
 			config->grafana_enabled, config->grafana_push_interval_ms,
 			config->grafana_push_url);
-	printf("[config] Upload: enabled=%d rate=%dKB/s scan=%ds buffer=%d url=%s\n",
-			config->upload_enabled, config->upload_rate_limit_kbps,
+	printf("[config] Upload: enabled=%d rate=%s%dKB/s scan=%ds buffer=%d url=%s\n",
+			config->upload_enabled,
+			config->upload_adaptive_rate ? "adaptive,cap=" : "",
+			config->upload_rate_limit_kbps,
 			config->upload_scan_interval_s, config->upload_buffer_in_memory,
 			config->upload_url);
 
