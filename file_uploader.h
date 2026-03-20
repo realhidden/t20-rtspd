@@ -13,6 +13,7 @@ typedef struct {
 	int rate_limit_kbps;
 	int scan_interval_s;
 	int buffer_in_memory;
+	int adaptive_rate;        /* 1 = enable adaptive rate limiting */
 } file_uploader_config_t;
 
 int file_uploader_init(const file_uploader_config_t *config);

@@ -208,6 +208,7 @@ int main(int argc, char** argv) {
 		ul_config.rate_limit_kbps = config.upload_rate_limit_kbps;
 		ul_config.scan_interval_s = config.upload_scan_interval_s;
 		ul_config.buffer_in_memory = config.upload_buffer_in_memory;
+		ul_config.adaptive_rate = config.upload_adaptive_rate;
 
 		ret = file_uploader_init(&ul_config);
 		if (ret < 0)

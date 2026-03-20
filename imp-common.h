@@ -219,6 +219,7 @@ typedef struct{
 	int upload_rate_limit_kbps;
 	int upload_scan_interval_s;
 	int upload_buffer_in_memory;
+	int upload_adaptive_rate;
 } app_config_t;
 
 int app_config_parse(const char *ini_path, app_config_t *config);

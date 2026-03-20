@@ -306,10 +306,28 @@ static long long get_time_us(void)
 	return (long long)tv.tv_sec * 1000000LL + tv.tv_usec;
 }
 
+void adaptive_rate_init(adaptive_rate_t *ar, int target_pct, int max_rate_kbps)
+{
+	memset(ar, 0, sizeof(*ar));
+	ar->target_pct = (target_pct > 0 && target_pct <= 100) ? target_pct : 80;
+	ar->max_rate_kbps = max_rate_kbps;
+}
+
 #define UPLOAD_CHUNK_SIZE 8192
+
+/* Probe window: send the first 512KB at full speed to measure link capacity */
+#define PROBE_BYTES (512 * 1024)
+
+/* EMA smoothing: alpha = 3/10 (reacts to changes while filtering jitter) */
+#define EMA_ALPHA_NUM 3
+#define EMA_ALPHA_DEN 10
+
+/* Minimum adaptive rate to prevent stalling */
+#define MIN_RATE_KBPS 10
 
 int https_post_file(const char *url, const char **headers,
                     const char *filepath, int rate_limit_kbps,
+                    adaptive_rate_t *adaptive,
                     int *http_status)
 {
 	int ret;
@@ -408,33 +426,120 @@ int https_post_file(const char *url, const char **headers,
 	/* Stream file with rate limiting */
 	{
 		unsigned char buf[UPLOAD_CHUNK_SIZE];
-		long bytes_sent = 0;
+		long bytes_sent_total = 0;
 		long long start_us = get_time_us();
 		size_t n;
 
+		/* Adaptive rate state for this upload */
+		int probe_done = 0;
+		long long probe_write_us = 0;   /* Wall-clock time of writes during probe */
+		long probe_bytes = 0;
+		long bytes_since_probe = 0;     /* Bytes sent after probe completed */
+		long long rate_limit_start_us = 0;
+		int effective_rate = 0;         /* Active rate limit in KB/s */
+
+		/* If adaptive mode with prior state, use existing rate for the probe
+		 * window too (don't fully saturate on subsequent uploads). For the
+		 * very first upload (no prior data), probe at full speed. */
+		if (adaptive && adaptive->initialized) {
+			/* Re-probe but at 2x current rate to detect increased capacity
+			 * without fully saturating the link */
+			effective_rate = adaptive->current_rate_kbps * 2;
+			if (adaptive->max_rate_kbps > 0 && effective_rate > adaptive->max_rate_kbps)
+				effective_rate = adaptive->max_rate_kbps;
+		}
+
 		while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+			long long write_start = get_time_us();
+
 			size_t written = 0;
 			while (written < n) {
 				ret = mbedtls_ssl_write(&ssl, buf + written, n - written);
 				if (ret < 0) {
 					printf("[%s] ssl_write (file) failed at %ld/%ld: -0x%04x\n",
-							TAG, bytes_sent, file_size, -ret);
+							TAG, bytes_sent_total, file_size, -ret);
 					goto cleanup_file;
 				}
 				written += ret;
 			}
-			bytes_sent += n;
 
-			/* Rate limiting */
-			if (rate_limit_kbps > 0) {
-				long long expected_us = (bytes_sent * 1000000LL) / ((long long)rate_limit_kbps * 1024);
+			long long write_end = get_time_us();
+			bytes_sent_total += n;
+
+			if (adaptive) {
+				if (!probe_done) {
+					/* Probe phase: measure raw write throughput */
+					probe_write_us += (write_end - write_start);
+					probe_bytes += n;
+
+					/* During re-probe with prior state, apply gentle rate limit */
+					if (effective_rate > 0) {
+						long long expected = (probe_bytes * 1000000LL) /
+							((long long)effective_rate * 1024);
+						long long elapsed = get_time_us() - start_us;
+						if (expected > elapsed)
+							usleep((unsigned int)(expected - elapsed));
+					}
+
+					if (probe_bytes >= PROBE_BYTES || probe_bytes >= file_size) {
+						/* Probe complete */
+						long long raw_bps = 0;
+						if (probe_write_us > 0)
+							raw_bps = (probe_bytes * 1000000LL) / probe_write_us;
+
+						/* Update EMA */
+						if (!adaptive->initialized) {
+							adaptive->ema_bps = raw_bps;
+							adaptive->initialized = 1;
+						} else {
+							adaptive->ema_bps =
+								(EMA_ALPHA_NUM * raw_bps +
+								 (EMA_ALPHA_DEN - EMA_ALPHA_NUM) * adaptive->ema_bps)
+								/ EMA_ALPHA_DEN;
+						}
+
+						/* Compute adaptive rate = target_pct% of smoothed throughput */
+						int rate = (int)((adaptive->ema_bps * adaptive->target_pct)
+								/ 100 / 1024);
+						if (adaptive->max_rate_kbps > 0 && rate > adaptive->max_rate_kbps)
+							rate = adaptive->max_rate_kbps;
+						if (rate < MIN_RATE_KBPS)
+							rate = MIN_RATE_KBPS;
+
+						adaptive->current_rate_kbps = rate;
+						effective_rate = rate;
+						probe_done = 1;
+						rate_limit_start_us = get_time_us();
+						bytes_since_probe = 0;
+
+						printf("[%s] Adaptive: probe=%ldKB in %lldms raw=%lldKB/s "
+								"ema=%lldKB/s target=%d%% -> rate=%dKB/s\n",
+								TAG, probe_bytes / 1024,
+								probe_write_us / 1000,
+								raw_bps / 1024,
+								adaptive->ema_bps / 1024,
+								adaptive->target_pct, rate);
+					}
+				} else {
+					/* Rate-limited phase */
+					bytes_since_probe += n;
+					long long expected_us = (bytes_since_probe * 1000000LL) /
+						((long long)effective_rate * 1024);
+					long long elapsed_us = get_time_us() - rate_limit_start_us;
+					if (expected_us > elapsed_us)
+						usleep((unsigned int)(expected_us - elapsed_us));
+				}
+			} else if (rate_limit_kbps > 0) {
+				/* Static rate limiting (original behavior) */
+				long long expected_us = (bytes_sent_total * 1000000LL) /
+					((long long)rate_limit_kbps * 1024);
 				long long elapsed_us = get_time_us() - start_us;
 				if (expected_us > elapsed_us)
 					usleep((unsigned int)(expected_us - elapsed_us));
 			}
 		}
 
-		printf("[%s] Sent %ld bytes from %s\n", TAG, bytes_sent, filepath);
+		printf("[%s] Sent %ld bytes from %s\n", TAG, bytes_sent_total, filepath);
 	}
 
 	fclose(fp);
