@@ -2,3 +2,7 @@
 version.h
 t20-rtspd
 .idea
+
+# Build artifacts
+.wget-hsts
+*.a

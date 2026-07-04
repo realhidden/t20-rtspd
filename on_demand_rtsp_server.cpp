@@ -255,8 +255,8 @@ int main(int argc, char** argv) {
 	time(&last_stats_time);
 
 	while (g_running) {
-		/* Poll for encoded stream */
-		ret = IMP_Encoder_PollingStream(0, 100);
+		/* Poll for encoded stream — match frame interval to reduce syscalls */
+		ret = IMP_Encoder_PollingStream(0, 500);
 		if (ret < 0) {
 			poll_timeouts++;
 			continue; /* timeout, try again */
