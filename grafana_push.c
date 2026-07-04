@@ -257,15 +257,21 @@ static void do_push(void)
 	int offset = 0;
 	struct timespec ts;
 	long long ts_ns;
+	int n;
 
 	clock_gettime(CLOCK_REALTIME, &ts);
 	ts_ns = (long long)ts.tv_sec * 1000000000LL + (long long)ts.tv_nsec;
 
-	offset += collect_isp_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
-	offset += collect_encoder_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
-	offset += collect_recording_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
-	offset += collect_system_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
-	offset += collect_net_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
+	n = collect_isp_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
+	if (n > 0 && offset + n < (int)sizeof(payload)) offset += n;
+	n = collect_encoder_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
+	if (n > 0 && offset + n < (int)sizeof(payload)) offset += n;
+	n = collect_recording_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
+	if (n > 0 && offset + n < (int)sizeof(payload)) offset += n;
+	n = collect_system_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
+	if (n > 0 && offset + n < (int)sizeof(payload)) offset += n;
+	n = collect_net_metrics(payload + offset, sizeof(payload) - offset, ts_ns);
+	if (n > 0 && offset + n < (int)sizeof(payload)) offset += n;
 
 	const char *headers[] = {
 		g_auth_header,

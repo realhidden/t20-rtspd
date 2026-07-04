@@ -31,7 +31,7 @@ int pwm_init() {
 }
 
 void pwm_destroy() {
-	if (pwm_fd < 0)
+	if (pwm_fd >= 0)
 		close(pwm_fd);
 	pwm_fd = -1;
 }

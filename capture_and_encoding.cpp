@@ -43,12 +43,17 @@ extern int IMP_Encoder_SetPoolSize(int newPoolSize0);
 
 int grpNum = 0;
 IMPRgnHandle *prHander;
+static volatile int g_osd_active = 0;
 
 int destory()
 {
 	int ret, i;
 
 	printf("[capture] Teardown starting...\n");
+
+	/* Signal OSD update thread to stop before tearing down handles */
+	g_osd_active = 0;
+	usleep(200000); /* give thread one iteration to notice and exit */
 
 	/* Step.a Stop receiving pictures before teardown */
 	ret = IMP_Encoder_StopRecvPic(0);
@@ -100,11 +105,16 @@ int destory()
 	return 0;
 }
 
+#define MAX_IOV_PACKS 32
+
 int save_stream_to_fd(int fd, IMPEncoderStream *stream)
 {
 	int i, nr_pack = stream->packCount;
-	struct iovec iov[nr_pack];
+	struct iovec iov[MAX_IOV_PACKS];
 	size_t total = 0;
+
+	if (nr_pack > MAX_IOV_PACKS)
+		nr_pack = MAX_IOV_PACKS;
 
 	for (i = 0; i < nr_pack; i++) {
 		iov[i].iov_base = (void *)stream->pack[i].virAddr;
@@ -112,10 +122,27 @@ int save_stream_to_fd(int fd, IMPEncoderStream *stream)
 		total += stream->pack[i].length;
 	}
 
-	ssize_t written = writev(fd, iov, nr_pack);
-	if (written < 0 || (size_t)written != total) {
-		printf("stream writev error:%s\n", strerror(errno));
-		return -1;
+	/* Write with EINTR retry and partial-write handling */
+	size_t total_written = 0;
+	i = 0;
+	while (total_written < total) {
+		ssize_t written = writev(fd, iov + i, nr_pack - i);
+		if (written < 0) {
+			if (errno == EINTR)
+				continue;
+			printf("stream writev error:%s\n", strerror(errno));
+			return -1;
+		}
+		total_written += written;
+		/* Advance iov past fully-written entries */
+		while (i < nr_pack && (size_t)written >= iov[i].iov_len) {
+			written -= iov[i].iov_len;
+			i++;
+		}
+		if (i < nr_pack) {
+			iov[i].iov_base = (char *)iov[i].iov_base + written;
+			iov[i].iov_len -= written;
+		}
 	}
 
 	return 0;
@@ -166,7 +193,7 @@ static void *update_thread(void *p)
                 return NULL;
         }
 
-        while(1) {
+        while(g_osd_active) {
                         int penpos_t = 0;
                         int fontadv = 0;
 
@@ -212,6 +239,7 @@ static void *update_thread(void *p)
 
 #endif
                         }
+                        if (!g_osd_active) break;
                         rAttrData.picData.pData = data;
                         IMP_OSD_UpdateRgnAttrData(prHander[0], &rAttrData);
 
@@ -319,6 +347,7 @@ int capture_and_encoding()
 			printf("thread create error\n");
 			return -1;
 	}
+	g_osd_active = 1;
 #else
     // bind without OST
     for (i = 0; i < FS_CHN_NUM; i++) {

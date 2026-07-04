@@ -274,9 +274,12 @@ int https_post(const char *url, const char **headers,
 
 	/* Parse HTTP status code from "HTTP/1.x NNN ..." */
 	int status = 0;
-	if (ret > 12 && strncmp(response, "HTTP/1.", 7) == 0) {
-		status = atoi(response + 9);
-	}
+	const char *sp = response;
+	/* Find first space after HTTP version */
+	while (*sp && *sp != ' ' && sp < response + ret)
+		sp++;
+	if (*sp == ' ')
+		status = atoi(sp + 1);
 
 	if (http_status)
 		*http_status = status;
@@ -555,8 +558,11 @@ int https_post_file(const char *url, const char **headers,
 
 	/* Parse HTTP status */
 	int status = 0;
-	if (ret > 12 && strncmp(response, "HTTP/1.", 7) == 0)
-		status = atoi(response + 9);
+	const char *sp2 = response;
+	while (*sp2 && *sp2 != ' ' && sp2 < response + ret)
+		sp2++;
+	if (*sp2 == ' ')
+		status = atoi(sp2 + 1);
 
 	if (http_status)
 		*http_status = status;
