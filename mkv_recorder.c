@@ -32,6 +32,10 @@ static int64_t g_first_pts = -1;
 static uint8_t *g_frame_buf = NULL;
 static int g_frame_buf_size = 0;
 
+/* Cached disk usage — check every 30s instead of per-frame */
+static int g_cached_disk_usage = 0;
+static time_t g_last_disk_check = 0;
+
 static int check_disk_usage(const char *path)
 {
 	struct statvfs stat;
@@ -54,15 +58,17 @@ static int check_disk_usage(const char *path)
 static int open_new_chunk(void)
 {
 	int ret;
-	char filepath[512];
+	static char filepath[512];
 	time_t now;
 	struct tm *tm_info;
 
-	/* Check disk usage */
-	int usage = check_disk_usage(g_config.output_dir);
-	if (usage >= 0 && usage >= g_config.disk_usage_threshold) {
-		printf("[%s] Disk usage %d%% >= threshold %d%%, skipping recording\n",
-				TAG, usage, g_config.disk_usage_threshold);
+	/* Check disk usage (cached — refresh every 30s) */
+	time(&now);
+	if (now - g_last_disk_check >= 30) {
+		g_cached_disk_usage = check_disk_usage(g_config.output_dir);
+		g_last_disk_check = now;
+	}
+	if (g_cached_disk_usage >= 0 && g_cached_disk_usage >= g_config.disk_usage_threshold) {
 		return -1;
 	}
 
@@ -148,7 +154,6 @@ static int open_new_chunk(void)
 	g_frame_count = 0;
 	g_first_pts = -1;
 
-	printf("[%s] Chunk opened successfully\n", TAG);
 	return 0;
 }
 
@@ -156,8 +161,6 @@ static void close_current_chunk(void)
 {
 	if (!g_fmt_ctx)
 		return;
-
-	printf("[%s] Closing chunk (%lld frames)\n", TAG, (long long)g_frame_count);
 
 	av_write_trailer(g_fmt_ctx);
 	avio_closep(&g_fmt_ctx->pb);
@@ -208,8 +211,6 @@ static int inspect_frame(IMPEncoderStream *stream)
 
 	if (g_sps_data && g_pps_data && !g_got_extradata) {
 		g_got_extradata = 1;
-		printf("[%s] Got SPS (%d bytes) + PPS (%d bytes)\n",
-				TAG, g_sps_size, g_pps_size);
 	}
 
 	return idr;
@@ -246,13 +247,6 @@ int mkv_recorder_init(const mkv_recorder_config_t *config)
 	av_register_all();
 #endif
 
-	printf("[%s] Recorder initialized: dir=%s chunk=%ds threshold=%d%%\n",
-			TAG, g_config.output_dir, g_config.chunk_duration,
-			g_config.disk_usage_threshold);
-	printf("[%s] Resolution: %dx%d @ %d/%d fps\n",
-			TAG, g_config.width, g_config.height,
-			g_config.fps_num, g_config.fps_den);
-
 	return 0;
 }
 
@@ -282,8 +276,6 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 		time(&now);
 		int64_t chunk_age = (int64_t)now - g_chunk_start_time;
 		if (chunk_age >= g_config.chunk_duration) {
-			printf("[%s] Rotating chunk (age=%llds, frames=%lld)\n",
-					TAG, (long long)chunk_age, (long long)g_frame_count);
 			close_current_chunk();
 		}
 	}
@@ -308,16 +300,16 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 	if (total_size <= 0)
 		return 0;
 
-	/* Grow reusable frame buffer if needed */
+	/* Grow reusable frame buffer if needed (with 50% headroom to reduce reallocs) */
 	if (total_size > g_frame_buf_size) {
-		free(g_frame_buf);
-		g_frame_buf = (uint8_t *)malloc(total_size);
-		if (!g_frame_buf) {
-			printf("[%s] malloc(%d) failed\n", TAG, total_size);
-			g_frame_buf_size = 0;
+		int new_size = total_size + total_size / 2;
+		uint8_t *new_buf = (uint8_t *)realloc(g_frame_buf, new_size);
+		if (!new_buf) {
+			printf("[%s] realloc(%d) failed\n", TAG, new_size);
 			return -1;
 		}
-		g_frame_buf_size = total_size;
+		g_frame_buf = new_buf;
+		g_frame_buf_size = new_size;
 	}
 
 	int offset = 0;
@@ -352,7 +344,6 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 	ret = av_interleaved_write_frame(g_fmt_ctx, &pkt);
 
 	if (ret < 0) {
-		printf("[%s] av_interleaved_write_frame failed: %d\n", TAG, ret);
 		/* Close broken chunk; next IDR will open a fresh file */
 		close_current_chunk();
 		return -1;
@@ -364,8 +355,6 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 
 void mkv_recorder_shutdown(void)
 {
-	printf("[%s] Shutting down recorder\n", TAG);
-
 	close_current_chunk();
 
 	if (g_sps_data) {
