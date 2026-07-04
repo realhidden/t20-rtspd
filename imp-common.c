@@ -190,13 +190,13 @@ int sample_system_exit()
 
 	ret = IMP_ISP_DisableSensor();
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "failed to EnableSensor\n");
+		IMP_LOG_ERR(TAG, "failed to DisableSensor\n");
 		return -1;
 	}
 
 	ret = IMP_ISP_DelSensor(&sensor_info);
 	if(ret < 0){
-		IMP_LOG_ERR(TAG, "failed to AddSensor\n");
+		IMP_LOG_ERR(TAG, "failed to DelSensor\n");
 		return -1;
 	}
 
@@ -207,7 +207,7 @@ int sample_system_exit()
 	}
 
 	if(IMP_ISP_Close()){
-		IMP_LOG_ERR(TAG, "failed to open ISP\n");
+		IMP_LOG_ERR(TAG, "failed to close ISP\n");
 		return -1;
 	}
 
@@ -795,24 +795,34 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 	rHanderFont = IMP_OSD_CreateRgn(NULL);
 	if (rHanderFont == INVHANDLE) {
 		IMP_LOG_ERR(TAG, "IMP_OSD_CreateRgn TimeStamp error !\n");
+		free(prHander);
 		return NULL;
 	}
 
 	rHanderLogo = IMP_OSD_CreateRgn(NULL);
 	if (rHanderLogo == INVHANDLE) {
 		IMP_LOG_ERR(TAG, "IMP_OSD_CreateRgn Logo error !\n");
+		IMP_OSD_DestroyRgn(rHanderFont);
+		free(prHander);
 		return NULL;
 	}
 
 	rHanderCover = IMP_OSD_CreateRgn(NULL);
 	if (rHanderCover == INVHANDLE) {
 		IMP_LOG_ERR(TAG, "IMP_OSD_CreateRgn Cover error !\n");
+		IMP_OSD_DestroyRgn(rHanderFont);
+		IMP_OSD_DestroyRgn(rHanderLogo);
+		free(prHander);
 		return NULL;
 	}
 
 	rHanderRect = IMP_OSD_CreateRgn(NULL);
 	if (rHanderRect == INVHANDLE) {
 		IMP_LOG_ERR(TAG, "IMP_OSD_CreateRgn Rect error !\n");
+		IMP_OSD_DestroyRgn(rHanderFont);
+		IMP_OSD_DestroyRgn(rHanderLogo);
+		IMP_OSD_DestroyRgn(rHanderCover);
+		free(prHander);
 		return NULL;
 	}
 
@@ -820,24 +830,50 @@ IMPRgnHandle *sample_osd_init(int grpNum)
 	ret = IMP_OSD_RegisterRgn(rHanderFont, grpNum, NULL);
 	if (ret < 0) {
 		IMP_LOG_ERR(TAG, "IVS IMP_OSD_RegisterRgn failed\n");
+		IMP_OSD_DestroyRgn(rHanderFont);
+		IMP_OSD_DestroyRgn(rHanderLogo);
+		IMP_OSD_DestroyRgn(rHanderCover);
+		IMP_OSD_DestroyRgn(rHanderRect);
+		free(prHander);
 		return NULL;
 	}
 
 	ret = IMP_OSD_RegisterRgn(rHanderLogo, grpNum, NULL);
 	if (ret < 0) {
 		IMP_LOG_ERR(TAG, "IVS IMP_OSD_RegisterRgn failed\n");
+		IMP_OSD_UnRegisterRgn(rHanderFont, grpNum);
+		IMP_OSD_DestroyRgn(rHanderFont);
+		IMP_OSD_DestroyRgn(rHanderLogo);
+		IMP_OSD_DestroyRgn(rHanderCover);
+		IMP_OSD_DestroyRgn(rHanderRect);
+		free(prHander);
 		return NULL;
 	}
 
 	ret = IMP_OSD_RegisterRgn(rHanderCover, grpNum, NULL);
 	if (ret < 0) {
 		IMP_LOG_ERR(TAG, "IVS IMP_OSD_RegisterRgn failed\n");
+		IMP_OSD_UnRegisterRgn(rHanderFont, grpNum);
+		IMP_OSD_UnRegisterRgn(rHanderLogo, grpNum);
+		IMP_OSD_DestroyRgn(rHanderFont);
+		IMP_OSD_DestroyRgn(rHanderLogo);
+		IMP_OSD_DestroyRgn(rHanderCover);
+		IMP_OSD_DestroyRgn(rHanderRect);
+		free(prHander);
 		return NULL;
 	}
 
 	ret = IMP_OSD_RegisterRgn(rHanderRect, grpNum, NULL);
 	if (ret < 0) {
 		IMP_LOG_ERR(TAG, "IVS IMP_OSD_RegisterRgn failed\n");
+		IMP_OSD_UnRegisterRgn(rHanderFont, grpNum);
+		IMP_OSD_UnRegisterRgn(rHanderLogo, grpNum);
+		IMP_OSD_UnRegisterRgn(rHanderCover, grpNum);
+		IMP_OSD_DestroyRgn(rHanderFont);
+		IMP_OSD_DestroyRgn(rHanderLogo);
+		IMP_OSD_DestroyRgn(rHanderCover);
+		IMP_OSD_DestroyRgn(rHanderRect);
+		free(prHander);
 		return NULL;
 	}
 
@@ -1091,7 +1127,7 @@ int sample_do_get_h264_stream(int nr_frames)
 	struct tm *now_tm;
 	now_tm = localtime(&now);
 	char now_str[32];
-	strftime(now_str, 40, "%Y%m%d%H%M%S", now_tm);
+	strftime(now_str, sizeof(now_str), "%Y%m%d%H%M%S", now_tm);
 
 	char stream_path[128];
 	sprintf(stream_path, "%s/stream-%s.h264",
@@ -1158,7 +1194,7 @@ int sample_do_get_jpeg_snap(void)
 	struct tm *now_tm;
 	now_tm = localtime(&now);
 	char now_str[32];
-	strftime(now_str, 40, "%Y%m%d%H%M%S", now_tm);
+	strftime(now_str, sizeof(now_str), "%Y%m%d%H%M%S", now_tm);
 
 	char snap_path[128];
 	sprintf(snap_path, "%s/snap-%s.jpg",

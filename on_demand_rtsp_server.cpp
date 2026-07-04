@@ -22,6 +22,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
+#include <sys/wait.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -35,11 +36,21 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "version.h"
 
 static volatile int g_running = 1;
+static volatile pid_t g_rtsp_child = -1;
 
 static void signal_handler(int sig)
 {
-	printf("Caught signal %d, shutting down...\n", sig);
+	/* Use write() instead of printf() — async-signal-safe */
+	const char msg[] = "Caught signal, shutting down...\n";
+	write(STDOUT_FILENO, msg, sizeof(msg) - 1);
 	g_running = 0;
+}
+
+static void sigchld_handler(int sig)
+{
+	/* Reap zombie child processes */
+	while (waitpid(-1, NULL, WNOHANG) > 0)
+		;
 }
 
 static void announceStream(RTSPServer* rtspServer, ServerMediaSession* sms,
@@ -64,16 +75,26 @@ int main(int argc, char** argv) {
 
 	/* Write version file */
 	char const* versionFileName = "/tmp/version";
-	int ver_fd = open(versionFileName, O_RDWR | O_CREAT | O_TRUNC, 0777);
+	int ver_fd = open(versionFileName, O_RDWR | O_CREAT | O_TRUNC, 0644);
 	if (ver_fd >= 0) {
-		write(ver_fd, VERSION, sizeof(VERSION));
+		write(ver_fd, VERSION, strlen(VERSION));
 		close(ver_fd);
 	}
 	printf("t20-rtspd version: %s (pid %d)\n", VERSION, getpid());
 
-	/* Install signal handlers for clean shutdown */
-	signal(SIGINT, signal_handler);
-	signal(SIGTERM, signal_handler);
+	/* Install signal handlers for clean shutdown (use sigaction for portability) */
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = signal_handler;
+	sa.sa_flags = 0;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGINT, &sa, NULL);
+	sigaction(SIGTERM, &sa, NULL);
+
+	/* SIGCHLD handler to reap RTSP child process */
+	sa.sa_handler = sigchld_handler;
+	sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+	sigaction(SIGCHLD, &sa, NULL);
 
 	/* Step 1: Parse INI config */
 	app_config_t config;
@@ -99,7 +120,7 @@ int main(int argc, char** argv) {
 		printf("[main] RTSP enabled, creating FIFO %s\n", inputFileName);
 
 		unlink(inputFileName);
-		if (mkfifo(inputFileName, 0777) < 0) {
+		if (mkfifo(inputFileName, 0600) < 0) {
 			printf("[main] mkfifo(%s) failed: %s\n", inputFileName, strerror(errno));
 			return 1;
 		}
@@ -148,7 +169,8 @@ int main(int argc, char** argv) {
 
 		/* Parent process continues: open FIFO for writing */
 		printf("[main] Parent (pid %d), RTSP child pid %d\n", getpid(), pid);
-		fifo_fd = open(inputFileName, O_RDWR | O_CREAT | O_TRUNC, 0777);
+		g_rtsp_child = pid;
+		fifo_fd = open(inputFileName, O_WRONLY);
 		if (fifo_fd < 0) {
 			printf("[main] Failed to open FIFO: %s\n", strerror(errno));
 			return 1;
@@ -284,7 +306,16 @@ int main(int argc, char** argv) {
 	if (fifo_fd >= 0)
 		close(fifo_fd);
 
+	/* Kill RTSP child process */
+	if (g_rtsp_child > 0) {
+		kill(g_rtsp_child, SIGTERM);
+		waitpid(g_rtsp_child, NULL, 0);
+	}
+
 	IMP_Encoder_StopRecvPic(0);
+
+	/* Teardown IMP SDK resources */
+	destory();
 
 	https_client_cleanup();
 
