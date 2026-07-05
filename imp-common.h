@@ -224,6 +224,9 @@ typedef struct{
 	int audio_enabled;
 	int audio_dev_id;        /* 0=digital mic, 1=analog mic */
 	int audio_sample_rate;   /* 8000/16000/... (G.711A native) */
+	/* http server for snapshots */
+	int http_enabled;
+	int http_port;           /* default 8080 */
 } app_config_t;
 
 int app_config_parse(const char *ini_path, app_config_t *config);
