@@ -585,3 +585,175 @@ cleanup_net:
 	mbedtls_net_free(&server_fd);
 	return -1;
 }
+
+int https_post_chunk(const char *url, const char **headers,
+                     const char *filepath, long offset, long chunk_size,
+                     int *http_status)
+{
+	int ret;
+	mbedtls_net_context server_fd;
+	mbedtls_ssl_context ssl;
+	char host[256], port[8], path[512];
+	char request[2048];
+	char response[RESPONSE_BUF_SIZE];
+	int req_len;
+	struct stat st;
+	FILE *fp = NULL;
+
+	if (!g_initialized) {
+		printf("[%s] Not initialized\n", TAG);
+		return -1;
+	}
+
+	if (http_status)
+		*http_status = 0;
+
+	/* Get file size */
+	if (stat(filepath, &st) != 0) {
+		printf("[%s] stat(%s) failed\n", TAG, filepath);
+		return -1;
+	}
+
+	/* Clamp chunk_size to remaining bytes */
+	if (chunk_size <= 0 || offset + chunk_size > (long)st.st_size)
+		chunk_size = st.st_size - offset;
+
+	/* Parse URL */
+	if (parse_url(url, host, sizeof(host), port, sizeof(port),
+				path, sizeof(path)) < 0) {
+		printf("[%s] Failed to parse URL: %s\n", TAG, url);
+		return -1;
+	}
+
+	/* Open file and seek to offset */
+	fp = fopen(filepath, "rb");
+	if (!fp) {
+		printf("[%s] fopen(%s) failed\n", TAG, filepath);
+		return -1;
+	}
+	if (offset > 0 && fseek(fp, offset, SEEK_SET) != 0) {
+		printf("[%s] fseek(%ld) failed\n", TAG, offset);
+		fclose(fp);
+		return -1;
+	}
+
+	mbedtls_net_init(&server_fd);
+	mbedtls_ssl_init(&ssl);
+
+	/* Connect TCP */
+	ret = mbedtls_net_connect(&server_fd, host, port, MBEDTLS_NET_PROTO_TCP);
+	if (ret != 0) {
+		printf("[%s] TCP connect to %s:%s failed: -0x%04x\n", TAG, host, port, -ret);
+		goto cleanup_chunk;
+	}
+
+	/* Setup TLS */
+	ret = mbedtls_ssl_setup(&ssl, &g_ssl_conf);
+	if (ret != 0) {
+		printf("[%s] ssl_setup failed: -0x%04x\n", TAG, -ret);
+		goto cleanup_chunk;
+	}
+
+	mbedtls_ssl_set_hostname(&ssl, host);
+	mbedtls_ssl_set_bio(&ssl, &server_fd,
+			mbedtls_net_send, NULL, mbedtls_net_recv_timeout);
+
+	/* TLS handshake */
+	while ((ret = mbedtls_ssl_handshake(&ssl)) != 0) {
+		if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+			printf("[%s] TLS handshake failed: -0x%04x\n", TAG, -ret);
+			goto cleanup_chunk;
+		}
+	}
+
+	/* Build HTTP request */
+	req_len = snprintf(request, sizeof(request),
+		"POST %s HTTP/1.1\r\n"
+		"Host: %s\r\n"
+		"Content-Length: %ld\r\n"
+		"Connection: close\r\n",
+		path, host, chunk_size);
+
+	/* Append custom headers */
+	if (headers) {
+		int i;
+		for (i = 0; headers[i] != NULL; i++) {
+			req_len += snprintf(request + req_len, sizeof(request) - req_len,
+				"%s\r\n", headers[i]);
+		}
+	}
+	req_len += snprintf(request + req_len, sizeof(request) - req_len, "\r\n");
+
+	/* Send headers */
+	ret = mbedtls_ssl_write(&ssl, (const unsigned char *)request, req_len);
+	if (ret < 0) {
+		printf("[%s] ssl_write (headers) failed: -0x%04x\n", TAG, -ret);
+		goto cleanup_chunk;
+	}
+
+	/* Stream chunk from file */
+	{
+		unsigned char buf[UPLOAD_CHUNK_SIZE];
+		long bytes_sent = 0;
+
+		while (bytes_sent < chunk_size) {
+			size_t to_read = chunk_size - bytes_sent;
+			if (to_read > UPLOAD_CHUNK_SIZE)
+				to_read = UPLOAD_CHUNK_SIZE;
+
+			size_t n = fread(buf, 1, to_read, fp);
+			if (n == 0) break;
+
+			size_t written = 0;
+			while (written < n) {
+				ret = mbedtls_ssl_write(&ssl, buf + written, n - written);
+				if (ret < 0) {
+					printf("[%s] ssl_write (chunk) failed at %ld/%ld: -0x%04x\n",
+							TAG, bytes_sent, chunk_size, -ret);
+					goto cleanup_chunk;
+				}
+				written += ret;
+			}
+			bytes_sent += n;
+		}
+	}
+
+	fclose(fp);
+	fp = NULL;
+
+	/* Read response */
+	memset(response, 0, sizeof(response));
+	ret = mbedtls_ssl_read(&ssl, (unsigned char *)response, sizeof(response) - 1);
+	if (ret < 0) {
+		printf("[%s] ssl_read failed: -0x%04x\n", TAG, -ret);
+		goto cleanup_chunk_net;
+	}
+
+	/* Parse HTTP status */
+	int status = 0;
+	const char *sp = response;
+	while (*sp && *sp != ' ' && sp < response + ret)
+		sp++;
+	if (*sp == ' ')
+		status = atoi(sp + 1);
+
+	if (http_status)
+		*http_status = status;
+
+	mbedtls_ssl_close_notify(&ssl);
+	mbedtls_ssl_free(&ssl);
+	mbedtls_net_free(&server_fd);
+
+	if (status >= 200 && status < 300)
+		return 0;
+
+	printf("[%s] HTTP %d from %s%s\n", TAG, status, host, path);
+	return -1;
+
+cleanup_chunk:
+	if (fp) fclose(fp);
+cleanup_chunk_net:
+	mbedtls_ssl_free(&ssl);
+	mbedtls_net_free(&server_fd);
+	return -1;
+}

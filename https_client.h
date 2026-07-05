@@ -45,6 +45,15 @@ int https_post_file(const char *url, const char **headers,
                     adaptive_rate_t *adaptive,
                     int *http_status);
 
+/* Upload a chunk (portion) of a file via HTTPS POST.
+ * filepath: path to the file
+ * offset: byte offset to start reading from
+ * chunk_size: number of bytes to upload (0 = rest of file)
+ * Returns 0 on success (HTTP 2xx), -1 on error. */
+int https_post_chunk(const char *url, const char **headers,
+                     const char *filepath, long offset, long chunk_size,
+                     int *http_status);
+
 #ifdef __cplusplus
 }
 #endif
