@@ -31,6 +31,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "imp-common.h"
 #include "mkv_recorder.h"
 #include "audio_capture.h"
+#include "http_server.h"
 #include "grafana_push.h"
 #include "file_uploader.h"
 #include "https_client.h"
@@ -38,6 +39,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 
 static volatile int g_running = 1;
 static volatile pid_t g_rtsp_child = -1;
+static char g_camera_name[64] = "unknown";
 
 static void signal_handler(int sig)
 {
@@ -102,6 +104,20 @@ int main(int argc, char** argv) {
 	if (app_config_parse("test.ini", &config) < 0) {
 		printf("Failed to parse config\n");
 		return 1;
+	}
+
+	/* Read camera name */
+	{
+		FILE *f = fopen("/system/sdcard/cameraname", "r");
+		if (f) {
+			if (fgets(g_camera_name, sizeof(g_camera_name), f)) {
+				/* Trim trailing newline */
+				size_t len = strlen(g_camera_name);
+				while (len > 0 && (g_camera_name[len-1] == '\n' || g_camera_name[len-1] == '\r'))
+					g_camera_name[--len] = '\0';
+			}
+			fclose(f);
+		}
 	}
 
 	/* Pass config to encoder init */
@@ -222,39 +238,30 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	/* Step 4b: Init Grafana metrics push */
-	if (config.grafana_enabled) {
-		grafana_push_config_t gf_config;
-		gf_config.enabled = config.grafana_enabled;
-		strncpy(gf_config.push_url, config.grafana_push_url, sizeof(gf_config.push_url) - 1);
-		gf_config.push_url[sizeof(gf_config.push_url) - 1] = '\0';
-		strncpy(gf_config.username, config.grafana_username, sizeof(gf_config.username) - 1);
-		gf_config.username[sizeof(gf_config.username) - 1] = '\0';
-		strncpy(gf_config.api_key, config.grafana_api_key, sizeof(gf_config.api_key) - 1);
-		gf_config.api_key[sizeof(gf_config.api_key) - 1] = '\0';
-		gf_config.push_interval_ms = config.grafana_push_interval_ms;
-
-		ret = grafana_push_init(&gf_config);
+	/* Step 4d: Start HTTP server for snapshots (optional) */
+	if (config.http_enabled) {
+		/* Set callbacks for status endpoint */
+		extern void http_server_set_callbacks(const char *(*)(void), int (*)(void));
+		http_server_set_callbacks(
+			[]() -> const char* { return g_camera_name; },
+			[]() -> int { return (int)time(NULL); }
+		);
+		ret = http_server_start(config.http_port);
 		if (ret < 0)
-			printf("[main] grafana_push_init() failed (non-fatal)\n");
-	}
+			printf("[main] http_server_start() failed (non-fatal)\n");
+		else
+			printf("[main] HTTP snapshot server started on port %d\n", config.http_port);
 
-	/* Step 4c: Init file uploader */
-	if (config.upload_enabled) {
-		file_uploader_config_t ul_config;
-		memset(&ul_config, 0, sizeof(ul_config));
-		ul_config.enabled = config.upload_enabled;
-		strncpy(ul_config.upload_url, config.upload_url, sizeof(ul_config.upload_url) - 1);
-		strncpy(ul_config.upload_token, config.upload_token, sizeof(ul_config.upload_token) - 1);
-		strncpy(ul_config.scan_dir, config.recording_output_dir, sizeof(ul_config.scan_dir) - 1);
-		ul_config.rate_limit_kbps = config.upload_rate_limit_kbps;
-		ul_config.scan_interval_s = config.upload_scan_interval_s;
-		ul_config.buffer_in_memory = config.upload_buffer_in_memory;
-		ul_config.adaptive_rate = config.upload_adaptive_rate;
-
-		ret = file_uploader_init(&ul_config);
-		if (ret < 0)
-			printf("[main] file_uploader_init() failed (non-fatal)\n");
+		/* Restart mDNS to advertise snapshot URL in TXT records */
+		char mdnsCmd[512];
+		snprintf(mdnsCmd, sizeof(mdnsCmd),
+			"killall mDNSResponder 2>/dev/null; "
+			"sleep 1; "
+			"/system/sdcard/bin/mDNSResponder -b -P /run/mdns-responder.pid "
+			"-n %s -t _rtsp._tcp -p %d "
+			"-x path=/snapshot -x name=%s -x id=%s 2>/dev/null &",
+			g_camera_name, config.http_port, g_camera_name, g_camera_name);
+		system(mdnsCmd);
 	}
 
 	/* Step 5: Start receiving encoded frames */
@@ -321,6 +328,10 @@ int main(int argc, char** argv) {
 	/* Stop audio before the recorder so no audio writes land during teardown */
 	if (config.recording_enabled && config.audio_enabled)
 		audio_capture_stop();
+
+	/* Stop HTTP server */
+	if (config.http_enabled)
+		http_server_stop();
 
 	if (config.recording_enabled)
 		mkv_recorder_shutdown();

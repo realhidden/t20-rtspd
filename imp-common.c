@@ -513,6 +513,10 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->audio_dev_id = atoi(value);
 	} else if (MATCH("audio", "SAMPLE_RATE")){
 		pconfig->audio_sample_rate = atoi(value);
+	} else if (MATCH("http", "ENABLED")){
+		pconfig->http_enabled = atoi(value);
+	} else if (MATCH("http", "PORT")){
+		pconfig->http_port = atoi(value);
 	} else {
 		return 0;
 	}
@@ -540,6 +544,8 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->audio_enabled = 0;        /* opt-in */
 	config->audio_dev_id = 1;         /* analog mic */
 	config->audio_sample_rate = 8000;
+	config->http_enabled = 0;
+	config->http_port = 8080;
 
 	if (ini_parse(ini_path, handler, config) < 0) {
 		printf("[config] Can't load %s\n", ini_path);
@@ -568,6 +574,8 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 			config->upload_url);
 	printf("[config] Audio: enabled=%d dev_id=%d sample_rate=%d\n",
 			config->audio_enabled, config->audio_dev_id, config->audio_sample_rate);
+	printf("[config] HTTP: enabled=%d port=%d\n",
+			config->http_enabled, config->http_port);
 
 	return 0;
 }
