@@ -238,6 +238,24 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	/* Step 4c: Init file uploader */
+	if (config.upload_enabled) {
+		file_uploader_config_t ul_config;
+		memset(&ul_config, 0, sizeof(ul_config));
+		ul_config.enabled = config.upload_enabled;
+		strncpy(ul_config.upload_url, config.upload_url, sizeof(ul_config.upload_url) - 1);
+		strncpy(ul_config.upload_token, config.upload_token, sizeof(ul_config.upload_token) - 1);
+		strncpy(ul_config.scan_dir, config.recording_output_dir, sizeof(ul_config.scan_dir) - 1);
+		ul_config.rate_limit_kbps = config.upload_rate_limit_kbps;
+		ul_config.scan_interval_s = config.upload_scan_interval_s;
+		ul_config.buffer_in_memory = config.upload_buffer_in_memory;
+		ul_config.adaptive_rate = config.upload_adaptive_rate;
+
+		ret = file_uploader_init(&ul_config);
+		if (ret < 0)
+			printf("[main] file_uploader_init() failed (non-fatal)\n");
+	}
+
 	/* Step 4d: Start HTTP server for snapshots (optional) */
 	if (config.http_enabled) {
 		/* Initialize JPEG encoder for snapshots */
