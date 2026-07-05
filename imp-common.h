@@ -161,7 +161,7 @@ extern "C"
 #define STREAM_BUFFER_SIZE		(1 * 1024 * 1024)
 
 #define ENC_H264_CHANNEL		0
-#define ENC_JPEG_CHANNEL		1
+#define ENC_JPEG_CHANNEL		2
 
 #define STREAM_FILE_PATH_PREFIX		"/tmp"
 #define SNAP_FILE_PATH_PREFIX		"/tmp"
