@@ -240,6 +240,13 @@ int main(int argc, char** argv) {
 
 	/* Step 4d: Start HTTP server for snapshots (optional) */
 	if (config.http_enabled) {
+		/* Initialize JPEG encoder for snapshots */
+		extern int sample_jpeg_init(void);
+		if (sample_jpeg_init() < 0)
+			printf("[main] sample_jpeg_init() failed (snapshots disabled)\n");
+		else
+			printf("[main] JPEG encoder initialized for snapshots\n");
+
 		/* Set callbacks for status endpoint */
 		extern void http_server_set_callbacks(const char *(*)(void), int (*)(void));
 		http_server_set_callbacks(

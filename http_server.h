@@ -15,6 +15,9 @@ int http_server_start(int port);
 /* Stop the HTTP server thread. */
 void http_server_stop(void);
 
+/* Set callbacks for camera name and uptime (used by status endpoint). */
+void http_server_set_callbacks(const char *(*getName)(void), int (*getUptime)(void));
+
 #ifdef __cplusplus
 }
 #endif

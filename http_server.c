@@ -67,7 +67,8 @@ static char *find_latest_snapshot(void) {
     };
 
     time_t newest = 0;
-    for (int d = 0; dirs[d]; d++) {
+    int d;
+    for (d = 0; dirs[d]; d++) {
         char cmd[512];
         snprintf(cmd, sizeof(cmd), "ls -t %s/snap-*.jpg 2>/dev/null | head -1", dirs[d]);
         FILE *pipe = popen(cmd, "r");
@@ -114,7 +115,9 @@ static void handle_request(int client_fd) {
 
     if (strcmp(path, "/snapshot") == 0) {
         /* Capture a fresh JPEG snapshot */
+        printf("[%s] Snapshot requested\n", TAG);
         int ret = capture_snapshot();
+        printf("[%s] Snapshot capture returned: %d\n", TAG, ret);
         if (ret < 0) {
             const char *resp = "HTTP/1.1 503 Snapshot Failed\r\nContent-Length: 0\r\n\r\n";
             send(client_fd, resp, strlen(resp), 0);
@@ -154,10 +157,10 @@ static void handle_request(int client_fd) {
             int remaining = fileSize;
             while (remaining > 0) {
                 int toRead = remaining > (int)sizeof(fileBuf) ? (int)sizeof(fileBuf) : remaining;
-                int read = read(fd, fileBuf, toRead);
-                if (read <= 0) break;
-                send(client_fd, fileBuf, read, 0);
-                remaining -= read;
+                int r = read(fd, fileBuf, toRead);
+                if (r <= 0) break;
+                send(client_fd, fileBuf, r, 0);
+                remaining -= r;
             }
             close(fd);
         }
