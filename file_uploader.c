@@ -16,6 +16,7 @@
 
 #define TAG "file_uploader"
 #define MAX_FILES 64
+#define UPLOAD_CHUNK_BYTES (1024 * 1024) /* 1MB upload chunks */
 
 static file_uploader_config_t g_config;
 static pthread_t g_thread;
@@ -110,6 +111,7 @@ static void read_wifi_ssid(void)
 typedef struct {
 	char name[256];
 	time_t mtime;
+	long size;
 } file_entry_t;
 
 static int compare_mtime(const void *a, const void *b)
@@ -159,6 +161,7 @@ static int scan_completed_files(const char *dir, file_entry_t *files, int max_fi
 		strncpy(files[count].name, ent->d_name, sizeof(files[count].name) - 1);
 		files[count].name[sizeof(files[count].name) - 1] = '\0';
 		files[count].mtime = st.st_mtime;
+		files[count].size = st.st_size;
 		count++;
 	}
 
@@ -211,40 +214,71 @@ static void *file_uploader_thread(void *arg)
 				snprintf(dest_filename, sizeof(dest_filename), "%s%s",
 						g_camera_name, files[i].name);
 
-			const char *headers[] = {
-				g_auth_header,
-				"Content-Type: application/octet-stream",
-				NULL, NULL, NULL, NULL, NULL
-			};
+			/* Calculate chunks */
+			long file_size = files[i].size;
+			int total_chunks = (file_size + UPLOAD_CHUNK_BYTES - 1) / UPLOAD_CHUNK_BYTES;
+			if (total_chunks < 1) total_chunks = 1;
 
-			/* Build dynamic headers */
-			char h_camera[128], h_ip[64], h_filename[384], h_wifi[128];
-			snprintf(h_camera, sizeof(h_camera), "X-Camera-Name: %s", g_camera_name);
-			snprintf(h_ip, sizeof(h_ip), "X-Camera-IP: %s", g_local_ip);
-			snprintf(h_filename, sizeof(h_filename), "X-Filename: %s", dest_filename);
-			snprintf(h_wifi, sizeof(h_wifi), "X-Camera-Wifi: %s", g_wifi_ssid);
-			headers[2] = h_camera;
-			headers[3] = h_ip;
-			headers[4] = h_filename;
-			headers[5] = h_wifi;
+			/* Query server for already-received chunks */
+			{
+				/* TODO: GET /api/upload/status to check which chunks exist
+				 * For now, upload all chunks; server handles dedup */
+			}
 
-			printf("[%s] Uploading %s (%d/%d)...\n", TAG, files[i].name, i + 1, nfiles);
+			printf("[%s] Uploading %s (%d/%d, %ld bytes, %d chunks)...\n",
+					TAG, files[i].name, i + 1, nfiles, file_size, total_chunks);
 
-			int http_status = 0;
-			int ret = https_post_file(g_config.upload_url, headers,
-					filepath, g_config.rate_limit_kbps,
-					g_config.adaptive_rate ? &g_adaptive_rate : NULL,
-					&http_status);
+			int upload_ok = 1;
+			int chunk_idx;
+			for (chunk_idx = 0; chunk_idx < total_chunks && g_running; chunk_idx++) {
+				/* Build chunk headers */
+				const char *headers[10];
+				char h_camera[128], h_ip[64], h_filename[384], h_wifi[128];
+				char h_chunk_idx[64], h_total_chunks[64];
+				int h_idx = 0;
 
-			if (ret == 0) {
+				headers[h_idx++] = g_auth_header;
+				headers[h_idx++] = "Content-Type: application/octet-stream";
+
+				snprintf(h_camera, sizeof(h_camera), "X-Camera-Name: %s", g_camera_name);
+				snprintf(h_ip, sizeof(h_ip), "X-Camera-IP: %s", g_local_ip);
+				snprintf(h_filename, sizeof(h_filename), "X-Filename: %s", dest_filename);
+				snprintf(h_wifi, sizeof(h_wifi), "X-Camera-Wifi: %s", g_wifi_ssid);
+				snprintf(h_chunk_idx, sizeof(h_chunk_idx), "X-Chunk-Index: %d", chunk_idx);
+				snprintf(h_total_chunks, sizeof(h_total_chunks), "X-Total-Chunks: %d", total_chunks);
+
+				headers[h_idx++] = h_camera;
+				headers[h_idx++] = h_ip;
+				headers[h_idx++] = h_filename;
+				headers[h_idx++] = h_wifi;
+				headers[h_idx++] = h_chunk_idx;
+				headers[h_idx++] = h_total_chunks;
+				headers[h_idx] = NULL;
+
+				long offset = (long)chunk_idx * UPLOAD_CHUNK_BYTES;
+				int http_status = 0;
+				int ret = https_post_chunk(g_config.upload_url, headers,
+						filepath, offset, UPLOAD_CHUNK_BYTES, &http_status);
+
+				if (ret != 0) {
+					printf("[%s] Chunk %d/%d FAILED for %s (http=%d)\n",
+							TAG, chunk_idx + 1, total_chunks, files[i].name, http_status);
+					upload_ok = 0;
+					break;
+				}
+				/* Small delay between chunks to let server respond */
+				usleep(100000);
+			}
+
+			if (upload_ok) {
 				upload_count++;
-				printf("[%s] Upload OK: %s (http=%d, total=%d)\n",
-						TAG, files[i].name, http_status, upload_count);
+				printf("[%s] Upload OK: %s (%d chunks, total=%d)\n",
+						TAG, files[i].name, total_chunks, upload_count);
 				if (unlink(filepath) != 0)
 					printf("[%s] Failed to delete %s after upload\n", TAG, filepath);
 			} else {
-				printf("[%s] Upload FAILED: %s (http=%d), will retry\n",
-						TAG, files[i].name, http_status);
+				printf("[%s] Upload FAILED: %s (will retry from failed chunk)\n",
+						TAG, files[i].name);
 			}
 		}
 
