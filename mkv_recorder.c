@@ -28,6 +28,7 @@ static int g_got_extradata = 0;
 static int64_t g_chunk_start_time = 0;  /* seconds since epoch */
 static int64_t g_frame_count = 0;
 static int64_t g_first_pts = -1;
+static int g_pkt_duration = 0;  /* pre-computed frame duration in stream time_base */
 
 static uint8_t *g_frame_buf = NULL;
 static int g_frame_buf_size = 0;
@@ -154,6 +155,11 @@ static int open_new_chunk(void)
 	g_frame_count = 0;
 	g_first_pts = -1;
 
+	/* Pre-compute frame duration in stream time_base */
+	g_pkt_duration = av_rescale_q(1,
+			(AVRational){g_config.fps_den, g_config.fps_num},
+			g_video_stream->time_base);
+
 	return 0;
 }
 
@@ -254,7 +260,6 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 {
 	int ret;
 	int idr;
-	time_t now;
 
 	if (!g_config.enabled)
 		return 0;
@@ -271,10 +276,9 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 			return 0;
 	}
 
-	/* Check if we need to rotate chunks */
+	/* Check if we need to rotate chunks (use monotonic clock, not per-frame time()) */
 	if (g_fmt_ctx && idr) {
-		time(&now);
-		int64_t chunk_age = (int64_t)now - g_chunk_start_time;
+		int64_t chunk_age = (int64_t)time(NULL) - g_chunk_start_time;
 		if (chunk_age >= g_config.chunk_duration) {
 			close_current_chunk();
 		}
@@ -318,11 +322,18 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 		offset += stream->pack[i].length;
 	}
 
+	/* Initialize AVPacket */
 	AVPacket pkt;
 	memset(&pkt, 0, sizeof(pkt));
 	pkt.data = g_frame_buf;
 	pkt.size = total_size;
 	pkt.stream_index = g_video_stream->index;
+	pkt.flags = idr ? AV_PKT_FLAG_KEY : 0;
+	pkt.buf = NULL;
+	pkt.pts = 0;
+	pkt.dts = 0;
+	pkt.duration = 0;
+	pkt.pos = -1;
 
 	/* Timestamp handling */
 	int64_t encoder_ts = stream->pack[0].timestamp; /* microseconds */
@@ -335,13 +346,12 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 	AVRational us_tb = {1, 1000000};
 	pkt.pts = av_rescale_q(relative_ts, us_tb, g_video_stream->time_base);
 	pkt.dts = pkt.pts;
-	pkt.duration = av_rescale_q(1, (AVRational){g_config.fps_den, g_config.fps_num},
-			g_video_stream->time_base);
+	pkt.duration = g_pkt_duration;
 
-	if (idr)
-		pkt.flags |= AV_PKT_FLAG_KEY;
-
-	ret = av_interleaved_write_frame(g_fmt_ctx, &pkt);
+	/* Use av_write_frame instead of av_interleaved_write_frame.
+	 * Frames are already in presentation order from the IMP encoder,
+	 * so interleaving is unnecessary overhead. */
+	ret = av_write_frame(g_fmt_ctx, &pkt);
 
 	if (ret < 0) {
 		/* Close broken chunk; next IDR will open a fresh file */

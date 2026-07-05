@@ -251,8 +251,8 @@ int main(int argc, char** argv) {
 	unsigned long frame_count = 0;
 	unsigned long poll_timeouts = 0;
 	unsigned long getstream_errors = 0;
-	time_t last_stats_time = 0;
-	time(&last_stats_time);
+	unsigned long stats_frame_threshold = 300; /* ~60s at 5fps */
+	unsigned long next_stats_frame = stats_frame_threshold;
 
 	while (g_running) {
 		/* Poll for encoded stream — match frame interval to reduce syscalls */
@@ -281,13 +281,11 @@ int main(int argc, char** argv) {
 		IMP_Encoder_ReleaseStream(0, &stream);
 		frame_count++;
 
-		/* Periodic stats every 60 seconds */
-		time_t now;
-		time(&now);
-		if (now - last_stats_time >= 60) {
+		/* Periodic stats — use frame count instead of time() to avoid syscall */
+		if (frame_count >= next_stats_frame) {
 			printf("[main] Stats: frames=%lu poll_timeouts=%lu getstream_errors=%lu\n",
 					frame_count, poll_timeouts, getstream_errors);
-			last_stats_time = now;
+			next_stats_frame = frame_count + stats_frame_threshold;
 		}
 	}
 
