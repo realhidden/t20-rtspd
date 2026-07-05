@@ -507,6 +507,12 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->upload_buffer_in_memory = atoi(value);
 	} else if (MATCH("upload", "ADAPTIVE_RATE")){
 		pconfig->upload_adaptive_rate = atoi(value);
+	} else if (MATCH("audio", "ENABLED")){
+		pconfig->audio_enabled = atoi(value);
+	} else if (MATCH("audio", "DEV_ID")){
+		pconfig->audio_dev_id = atoi(value);
+	} else if (MATCH("audio", "SAMPLE_RATE")){
+		pconfig->audio_sample_rate = atoi(value);
 	} else {
 		return 0;
 	}
@@ -531,6 +537,9 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->upload_scan_interval_s = 60;
 	config->upload_buffer_in_memory = 0;
 	config->upload_adaptive_rate = 0;
+	config->audio_enabled = 0;        /* opt-in */
+	config->audio_dev_id = 1;         /* analog mic */
+	config->audio_sample_rate = 8000;
 
 	if (ini_parse(ini_path, handler, config) < 0) {
 		printf("[config] Can't load %s\n", ini_path);
@@ -557,6 +566,8 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 			config->upload_rate_limit_kbps,
 			config->upload_scan_interval_s, config->upload_buffer_in_memory,
 			config->upload_url);
+	printf("[config] Audio: enabled=%d dev_id=%d sample_rate=%d\n",
+			config->audio_enabled, config->audio_dev_id, config->audio_sample_rate);
 
 	return 0;
 }

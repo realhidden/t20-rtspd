@@ -18,10 +18,14 @@ typedef struct {
 	int height;
 	int fps_num;
 	int fps_den;
+	int audio_enabled;
+	int audio_sample_rate;
+	int audio_channels;
 } mkv_recorder_config_t;
 
 int mkv_recorder_init(const mkv_recorder_config_t *config);
 int mkv_recorder_write_frame(IMPEncoderStream *stream);
+int mkv_recorder_write_audio_frame(const uint8_t *data, int len, int64_t pts_us);
 void mkv_recorder_shutdown(void);
 int64_t mkv_recorder_get_frame_count(void);
 int64_t mkv_recorder_get_chunk_start_time(void);

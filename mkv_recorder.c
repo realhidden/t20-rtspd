@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <errno.h>
@@ -10,6 +11,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavutil/avutil.h>
 #include <libavutil/mathematics.h>
+#include <libavutil/channel_layout.h>
 
 #include "mkv_recorder.h"
 
@@ -18,6 +20,11 @@
 static mkv_recorder_config_t g_config;
 static AVFormatContext *g_fmt_ctx = NULL;
 static AVStream *g_video_stream = NULL;
+static AVStream *g_audio_stream = NULL;
+
+/* Serializes access to g_fmt_ctx and writes from the video main loop and the
+ * audio capture thread — both now share one AVFormatContext. */
+static pthread_mutex_t g_write_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static uint8_t *g_sps_data = NULL;
 static int g_sps_size = 0;
@@ -28,6 +35,7 @@ static int g_got_extradata = 0;
 static int64_t g_chunk_start_time = 0;  /* seconds since epoch */
 static int64_t g_frame_count = 0;
 static int64_t g_first_pts = -1;
+static int64_t g_first_audio_pts = -1;  /* first audio PTS (µs) for the current chunk */
 static int g_pkt_duration = 0;  /* pre-computed frame duration in stream time_base */
 
 static uint8_t *g_frame_buf = NULL;
@@ -131,6 +139,28 @@ static int open_new_chunk(void)
 		}
 	}
 
+	/* Create audio stream (G.711A / A-law, muxed as-is from IMP AENC) */
+	if (g_config.audio_enabled) {
+		g_audio_stream = avformat_new_stream(g_fmt_ctx, NULL);
+		if (!g_audio_stream) {
+			printf("[%s] avformat_new_stream(audio) failed\n", TAG);
+			avformat_free_context(g_fmt_ctx);
+			g_fmt_ctx = NULL;
+			g_video_stream = NULL;
+			return -1;
+		}
+
+		g_audio_stream->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
+		g_audio_stream->codecpar->codec_id = AV_CODEC_ID_PCM_ALAW;
+		g_audio_stream->codecpar->sample_rate = g_config.audio_sample_rate;
+		g_audio_stream->codecpar->channels = g_config.audio_channels;
+		g_audio_stream->codecpar->channel_layout =
+				(g_config.audio_channels == 1) ? AV_CH_LAYOUT_MONO : AV_CH_LAYOUT_STEREO;
+		g_audio_stream->codecpar->bits_per_coded_sample = 8;  /* G.711 */
+		g_audio_stream->time_base.num = 1;
+		g_audio_stream->time_base.den = g_config.audio_sample_rate;
+	}
+
 	/* Open output file */
 	ret = avio_open(&g_fmt_ctx->pb, filepath, AVIO_FLAG_WRITE);
 	if (ret < 0) {
@@ -154,6 +184,7 @@ static int open_new_chunk(void)
 	g_chunk_start_time = (int64_t)now;
 	g_frame_count = 0;
 	g_first_pts = -1;
+	g_first_audio_pts = -1;
 
 	/* Pre-compute frame duration in stream time_base */
 	g_pkt_duration = av_rescale_q(1,
@@ -173,7 +204,9 @@ static void close_current_chunk(void)
 	avformat_free_context(g_fmt_ctx);
 	g_fmt_ctx = NULL;
 	g_video_stream = NULL;
+	g_audio_stream = NULL;
 	g_first_pts = -1;
+	g_first_audio_pts = -1;
 }
 
 /* Single pass: detect IDR and cache SPS/PPS if this is an IDR frame.
@@ -276,6 +309,10 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 			return 0;
 	}
 
+	/* --- Critical section: rotate/open chunk + write video frame.
+	 * Serialized with the audio capture thread (shared AVFormatContext). --- */
+	pthread_mutex_lock(&g_write_mutex);
+
 	/* Check if we need to rotate chunks (use monotonic clock, not per-frame time()) */
 	if (g_fmt_ctx && idr) {
 		int64_t chunk_age = (int64_t)time(NULL) - g_chunk_start_time;
@@ -287,13 +324,17 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 	/* Open new chunk if needed (only at IDR boundaries) */
 	if (!g_fmt_ctx && idr) {
 		ret = open_new_chunk();
-		if (ret < 0)
+		if (ret < 0) {
+			pthread_mutex_unlock(&g_write_mutex);
 			return 0; /* Skip frames until we can open a chunk */
+		}
 	}
 
 	/* If still no context, skip this frame */
-	if (!g_fmt_ctx)
+	if (!g_fmt_ctx) {
+		pthread_mutex_unlock(&g_write_mutex);
 		return 0;
+	}
 
 	/* Assemble all packs into a single buffer for this frame */
 	int total_size = 0;
@@ -301,8 +342,10 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 	for (i = 0; i < (int)stream->packCount; i++)
 		total_size += stream->pack[i].length;
 
-	if (total_size <= 0)
+	if (total_size <= 0) {
+		pthread_mutex_unlock(&g_write_mutex);
 		return 0;
+	}
 
 	/* Grow reusable frame buffer if needed (with 50% headroom to reduce reallocs) */
 	if (total_size > g_frame_buf_size) {
@@ -310,6 +353,7 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 		uint8_t *new_buf = (uint8_t *)realloc(g_frame_buf, new_size);
 		if (!new_buf) {
 			printf("[%s] realloc(%d) failed\n", TAG, new_size);
+			pthread_mutex_unlock(&g_write_mutex);
 			return -1;
 		}
 		g_frame_buf = new_buf;
@@ -348,18 +392,68 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 	pkt.dts = pkt.pts;
 	pkt.duration = g_pkt_duration;
 
-	/* Use av_write_frame instead of av_interleaved_write_frame.
-	 * Frames are already in presentation order from the IMP encoder,
-	 * so interleaving is unnecessary overhead. */
-	ret = av_write_frame(g_fmt_ctx, &pkt);
+	/* Interleaved write so the muxer orders video + audio packets by DTS.
+	 * (Previously av_write_frame when the file held only a video track.) */
+	ret = av_interleaved_write_frame(g_fmt_ctx, &pkt);
 
 	if (ret < 0) {
 		/* Close broken chunk; next IDR will open a fresh file */
 		close_current_chunk();
+		pthread_mutex_unlock(&g_write_mutex);
 		return -1;
 	}
 
 	g_frame_count++;
+	pthread_mutex_unlock(&g_write_mutex);
+	return 0;
+}
+
+int mkv_recorder_write_audio_frame(const uint8_t *data, int len, int64_t pts_us)
+{
+	if (!g_config.enabled || !g_config.audio_enabled)
+		return 0;
+	if (!data || len <= 0)
+		return 0;
+
+	pthread_mutex_lock(&g_write_mutex);
+
+	/* No chunk open yet (waiting for first video IDR) or between rotations —
+	 * drop the frame; the recorder is video-gated. */
+	if (!g_fmt_ctx || !g_audio_stream) {
+		pthread_mutex_unlock(&g_write_mutex);
+		return 0;
+	}
+
+	if (g_first_audio_pts < 0)
+		g_first_audio_pts = pts_us;
+
+	AVPacket pkt;
+	memset(&pkt, 0, sizeof(pkt));
+	pkt.data = (uint8_t *)data;
+	pkt.size = len;
+	pkt.stream_index = g_audio_stream->index;
+	pkt.flags = AV_PKT_FLAG_KEY;  /* every G.711 frame decodes independently */
+	pkt.buf = NULL;
+	pkt.pos = -1;
+
+	/* G.711A mono: 1 byte per sample → len == sample count, which is the
+	 * duration in the audio stream's time_base (1/sample_rate). */
+	pkt.duration = len;
+
+	AVRational us_tb = {1, 1000000};
+	pkt.pts = av_rescale_q(pts_us - g_first_audio_pts, us_tb, g_audio_stream->time_base);
+	pkt.dts = pkt.pts;
+
+	int ret = av_interleaved_write_frame(g_fmt_ctx, &pkt);
+
+	if (ret < 0) {
+		/* Close broken chunk; next video IDR reopens a fresh file. */
+		close_current_chunk();
+		pthread_mutex_unlock(&g_write_mutex);
+		return -1;
+	}
+
+	pthread_mutex_unlock(&g_write_mutex);
 	return 0;
 }
 

@@ -5,6 +5,9 @@ LIVE555_LIBS =  ./lib/livelib/libliveMedia.a ./lib/livelib/libgroupsock.a \
 				./lib/livelib/libBasicUsageEnvironment.a ./lib/livelib/libUsageEnvironment.a
 SDK_LIB_DIR	=  ./lib/imp_sys/uclibc
 IMP_LIBS	= $(SDK_LIB_DIR)/libimp.so $(SDK_LIB_DIR)/libalog.so
+# Note: IMP_AI_* / IMP_AENC_* symbols are exported by libimp.so, so
+# libaudioProcess.so is NOT linked here. Hard-linking it would add a
+# DT_NEEDED the camera rootfs lacks and stop the binary from loading.
 FFMPEG_LIBS	=  ./lib/ffmpeg/libavformat.a ./lib/ffmpeg/libavcodec.a ./lib/ffmpeg/libavutil.a
 MBEDTLS_LIBS	=  ./lib/mbedtls/libmbedtls.a ./lib/mbedtls/libmbedx509.a ./lib/mbedtls/libmbedcrypto.a
 LIBS	=  $(LIVE555_LIBS) $(IMP_LIBS) $(FFMPEG_LIBS) $(MBEDTLS_LIBS)
@@ -24,7 +27,7 @@ LINK 		 =  $(CROSS_COMPILE)g++ -o
 #LINK_OPTS    =  -ldl  -lm -lpthread -ldl -g
 LINK_OPTS    =  -lpthread -lm -lrt -ldl
 CONSOLE_LINK_OPTS = $(LINK_OPTS)
-LINK_OBJ	 = ini.o pwm.o imp-common.o capture_and_encoding.o mkv_recorder.o grafana_push.o https_client.o file_uploader.o on_demand_rtsp_server.o
+LINK_OBJ	 = ini.o pwm.o imp-common.o capture_and_encoding.o mkv_recorder.o audio_capture.o grafana_push.o https_client.o file_uploader.o on_demand_rtsp_server.o
 
 APP = t20-rtspd
 
