@@ -30,6 +30,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "capture_and_encoding.h"
 #include "imp-common.h"
 #include "mkv_recorder.h"
+#include "audio_capture.h"
 #include "grafana_push.h"
 #include "file_uploader.h"
 #include "https_client.h"
@@ -193,6 +194,9 @@ int main(int argc, char** argv) {
 		rec_config.height = config.HEIGHT ? config.HEIGHT : SENSOR_HEIGHT;
 		rec_config.fps_num = config.RATENUM ? config.RATENUM : SENSOR_FRAME_RATE_NUM;
 		rec_config.fps_den = config.RATEDEN ? config.RATEDEN : SENSOR_FRAME_RATE_DEN;
+		rec_config.audio_enabled = config.audio_enabled;
+		rec_config.audio_sample_rate = config.audio_sample_rate;
+		rec_config.audio_channels = 1;  /* mono */
 
 		ret = mkv_recorder_init(&rec_config);
 		if (ret < 0) {
@@ -200,6 +204,22 @@ int main(int argc, char** argv) {
 			return 1;
 		}
 		printf("[main] MKV recorder initialized\n");
+
+		/* Start audio capture thread (mic → G.711A → recorder) */
+		if (config.audio_enabled) {
+			audio_capture_config_t acfg;
+			memset(&acfg, 0, sizeof(acfg));
+			acfg.enabled = 1;
+			acfg.dev_id = config.audio_dev_id;
+			acfg.sample_rate = config.audio_sample_rate;
+			acfg.channels = 1;  /* mono */
+
+			ret = audio_capture_start(&acfg);
+			if (ret < 0)
+				printf("[main] audio_capture_start() failed (non-fatal)\n");
+			else
+				printf("[main] Audio capture started\n");
+		}
 	}
 
 	/* Step 4b: Init Grafana metrics push */
@@ -297,6 +317,10 @@ int main(int argc, char** argv) {
 
 	if (config.grafana_enabled)
 		grafana_push_shutdown();
+
+	/* Stop audio before the recorder so no audio writes land during teardown */
+	if (config.recording_enabled && config.audio_enabled)
+		audio_capture_stop();
 
 	if (config.recording_enabled)
 		mkv_recorder_shutdown();
