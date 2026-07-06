@@ -3,12 +3,15 @@ set -e
 
 echo "=== Step 1: Setting up cross-compilation toolchain ==="
 mkdir -p /build && cd /build
-apt-get update && apt-get install -y p7zip wget git build-essential libcurl4-openssl-dev libssl-dev bzip2
+apt-get update -o Acquire::AllowInsecureRepositories=true
+apt-get install -y --allow-unauthenticated libarchive-tools wget git build-essential libcurl4-openssl-dev libssl-dev bzip2
 
 if [ ! -d /build/mips-gcc472-glibc216-64bit ]; then
     echo "Downloading MIPS toolchain..."
     wget -q https://github.com/Dafang-Hacks/Ingenic-T10_20/raw/master/resource/toolchain/mips-gcc472-glibc216-64bit-r2.3.3.7z
-    p7zip -d mips-gcc472-glibc216-64bit-r2.3.3.7z
+    # bsdtar (libarchive) instead of p7zip: newer p7zip refuses the toolchain's
+    # relative .so symlinks ("Dangerous link path was ignored") and aborts.
+    bsdtar xf mips-gcc472-glibc216-64bit-r2.3.3.7z
 fi
 export PATH=/build/mips-gcc472-glibc216-64bit/bin/:$PATH
 
