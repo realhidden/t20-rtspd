@@ -70,6 +70,13 @@ static int open_new_chunk(void)
 	time_t now;
 	struct tm *tm_info;
 
+	/* Reset chunk-relative state before any FFmpeg calls so that the
+	 * audio thread (which shares g_first_pts) cannot race ahead and
+	 * set g_first_pts to an audio timestamp before the video thread
+	 * establishes the true baseline. */
+	g_first_pts = -1;
+	g_frame_count = 0;
+
 	/* Check disk usage (cached — refresh every 30s) */
 	time(&now);
 	if (now - g_last_disk_check >= 30) {
@@ -181,8 +188,6 @@ static int open_new_chunk(void)
 
 	time(&now);
 	g_chunk_start_time = (int64_t)now;
-	g_frame_count = 0;
-	g_first_pts = -1;
 
 	/* Pre-compute frame duration in stream time_base */
 	g_pkt_duration = av_rescale_q(1,
@@ -197,6 +202,10 @@ static void close_current_chunk(void)
 	if (!g_fmt_ctx)
 		return;
 
+	/* Flush the interleaving buffer before writing the trailer.
+	 * Without this, av_interleaved_write_frame may hold a stale
+	 * packet from the old chunk that leaks into the next file. */
+	av_interleaved_write_frame(g_fmt_ctx, NULL);
 	av_write_trailer(g_fmt_ctx);
 	avio_closep(&g_fmt_ctx->pb);
 	avformat_free_context(g_fmt_ctx);
@@ -421,14 +430,16 @@ int mkv_recorder_write_audio_frame(const uint8_t *data, int len, int64_t pts_us)
 		return 0;
 	}
 
-	/* Share the video IDR baseline (g_first_pts) so A/V stays aligned.
-	 * Using a separate audio baseline mapped the first audio frame of each
-	 * chunk to t=0 even though it was recorded ~one frame after the IDR,
-	 * so audio played early every chunk. g_first_pts is already set by the
-	 * time we get here — the recorder opens a chunk on the video IDR while
-	 * holding this same mutex. */
-	if (g_first_pts < 0)
-		g_first_pts = pts_us;
+	/* g_first_pts is established by the video thread when it opens a new
+	 * chunk (under this same mutex).  Never let the audio thread set it —
+	 * the audio and video encoders use independent clocks, so an audio
+	 * timestamp here would corrupt the video baseline.
+	 * If g_first_pts is still -1, the video thread hasn't opened a chunk
+	 * yet — drop this frame. */
+	if (g_first_pts < 0) {
+		pthread_mutex_unlock(&g_write_mutex);
+		return 0;
+	}
 
 	AVPacket pkt;
 	memset(&pkt, 0, sizeof(pkt));
