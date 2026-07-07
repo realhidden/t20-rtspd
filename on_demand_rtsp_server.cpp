@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
 
 	/* Step 2: Initialize IMP SDK (capture and encoding) */
 	printf("[main] Initializing IMP SDK...\n");
-	ret = capture_and_encoding();
+	ret = capture_and_encoding(&config);
 	if (ret < 0) {
 		printf("[main] capture_and_encoding() failed\n");
 		return 1;
@@ -307,6 +307,14 @@ int main(int argc, char** argv) {
 	unsigned long next_stats_frame = stats_frame_threshold;
 
 	while (g_running) {
+	/* Check for night mode toggle (SIGUSR1) */
+		extern volatile int g_night_mode;
+		static int last_night = -1;
+		if (g_night_mode != last_night) {
+			apply_night_encoding(g_night_mode);
+			last_night = g_night_mode;
+		}
+
 		/* Poll for encoded stream — match frame interval to reduce syscalls */
 		ret = IMP_Encoder_PollingStream(0, 500);
 		if (ret < 0) {
