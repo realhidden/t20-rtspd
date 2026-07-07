@@ -114,6 +114,18 @@ int audio_capture_start(const audio_capture_config_t *config)
 	attr.numPerFrm = g_sample_rate / 25;   /* ~40 ms frames (320 samples @ 8 kHz) */
 	attr.chnCnt = 1;
 
+	/* AGC must annotate attr BEFORE SetPubAttr so the device enables it.
+	 * Non-fatal: audio still records if AGC isn't available. */
+	IMPAudioAgcConfig agc;
+	memset(&agc, 0, sizeof(agc));
+	agc.TargetLevelDbfs = 1;      /* target near full scale (smaller = louder) */
+	agc.CompressionGaindB = 24;   /* up to 24 dB of gain */
+	int agc_ret = IMP_AI_EnableAgc(&attr, agc);
+	if (agc_ret != 0)
+		printf("[%s] IMP_AI_EnableAgc failed: %d (continuing without AGC)\n", TAG, agc_ret);
+	else
+		printf("[%s] AGC enabled (target=1 gain=24dB)\n", TAG);
+
 	ret = IMP_AI_SetPubAttr(dev, &attr);
 	if (ret != 0) {
 		printf("[%s] IMP_AI_SetPubAttr failed: %d\n", TAG, ret);
@@ -123,6 +135,18 @@ int audio_capture_start(const audio_capture_config_t *config)
 	ret = IMP_AI_Enable(dev);
 	if (ret != 0) {
 		printf("[%s] IMP_AI_Enable failed: %d\n", TAG, ret);
+		return -1;
+	}
+
+	/* IMP_AI_SetChnParam MUST be called before IMP_AI_EnableChn (sets the
+	 * frame cache depth); without it EnableChn is rejected. */
+	IMPAudioIChnParam chnParam;
+	memset(&chnParam, 0, sizeof(chnParam));
+	chnParam.usrFrmDepth = 2;
+	ret = IMP_AI_SetChnParam(dev, AI_CHN, &chnParam);
+	if (ret != 0) {
+		printf("[%s] IMP_AI_SetChnParam failed: %d\n", TAG, ret);
+		IMP_AI_Disable(dev);
 		return -1;
 	}
 
