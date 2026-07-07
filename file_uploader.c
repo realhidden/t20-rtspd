@@ -31,7 +31,8 @@ static adaptive_rate_t g_adaptive_rate;
 
 static void read_camera_name(void)
 {
-	FILE *f = fopen("/system/sdcard/cameraname", "r");
+	FILE *f = fopen("/system/sdcard/config/cameraname", "r");
+	if (!f) f = fopen("/system/sdcard/cameraname", "r");  /* legacy root location */
 	if (f) {
 		if (fgets(g_camera_name, sizeof(g_camera_name), f)) {
 			int len = strlen(g_camera_name);

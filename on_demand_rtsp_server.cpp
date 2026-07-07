@@ -113,7 +113,8 @@ int main(int argc, char** argv) {
 
 	/* Read camera name */
 	{
-		FILE *f = fopen("/system/sdcard/cameraname", "r");
+		FILE *f = fopen("/system/sdcard/config/cameraname", "r");
+		if (!f) f = fopen("/system/sdcard/cameraname", "r");  /* legacy root location */
 		if (f) {
 			if (fgets(g_camera_name, sizeof(g_camera_name), f)) {
 				/* Trim trailing newline */

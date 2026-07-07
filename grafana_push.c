@@ -66,7 +66,8 @@ static int base64_encode(const char *input, int len, char *output, int out_size)
 
 static void read_camera_name(void)
 {
-	FILE *f = fopen("/system/sdcard/cameraname", "r");
+	FILE *f = fopen("/system/sdcard/config/cameraname", "r");
+	if (!f) f = fopen("/system/sdcard/cameraname", "r");  /* legacy root location */
 	if (f) {
 		char buf[64];
 		if (fgets(buf, sizeof(buf), f)) {
