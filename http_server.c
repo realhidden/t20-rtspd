@@ -30,6 +30,7 @@
 static volatile int g_running = 0;
 static pthread_t g_thread;
 static int g_port = 8080;
+static int g_server_fd = -1;   /* listening socket, mirrored so stop() can wake accept() */
 
 /* Camera info callback — set by main to provide status */
 static const char *(*g_get_camera_name)(void) = NULL;
@@ -204,6 +205,7 @@ static void *http_server_thread(void *arg) {
         printf("[%s] socket() failed: %s\n", TAG, strerror(errno));
         return NULL;
     }
+    g_server_fd = server_fd;
 
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -240,6 +242,7 @@ static void *http_server_thread(void *arg) {
     }
 
     close(server_fd);
+    g_server_fd = -1;
     printf("[%s] HTTP server stopped\n", TAG);
     return NULL;
 }
@@ -261,6 +264,11 @@ int http_server_start(int port) {
 void http_server_stop(void) {
     if (!g_running) return;
     g_running = 0;
-    /* The thread will exit when accept() fails after close() */
+    /* Setting g_running alone does not unblock accept(); the thread would
+     * hang there forever and pthread_join would never return, leaving the
+     * daemon unkillable via SIGTERM. shutdown(RDWR) makes the pending
+     * accept() return so the loop sees g_running==0 and exits cleanly. */
+    if (g_server_fd >= 0)
+        shutdown(g_server_fd, SHUT_RDWR);
     pthread_join(g_thread, NULL);
 }
