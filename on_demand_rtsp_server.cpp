@@ -101,8 +101,8 @@ int main(int argc, char** argv) {
 
 	/* Step 1: Parse INI config */
 	app_config_t config;
-	if (app_config_parse("/system/sdcard/config/test.ini", &config) < 0) {
-		if (app_config_parse("/system/sdcard/test.ini", &config) < 0) {
+	if (app_config_parse("/system/sdcard/config/donekamera.conf", &config) < 0) {
+		if (app_config_parse("/system/sdcard/config/test.ini", &config) < 0) {
 			printf("Failed to parse config\n");
 			return 1;
 		}
