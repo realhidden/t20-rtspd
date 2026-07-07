@@ -21,6 +21,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <time.h>
+#include <signal.h>
+#include <sys/time.h>
 
 #include "http_server.h"
 
@@ -92,6 +94,24 @@ static char *find_latest_snapshot(void) {
     return snapPath[0] ? snapPath : NULL;
 }
 
+/* Send all len bytes, retrying short writes. Returns 0 on success, -1 on
+ * error/EOF. SIGPIPE is ignored (http_server_start) so a client that closed
+ * early yields EPIPE here instead of terminating the daemon. */
+static int send_all(int fd, const void *buf, size_t len) {
+    const char *p = (const char *)buf;
+    while (len > 0) {
+        ssize_t w = send(fd, p, len, 0);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (w == 0) return -1;
+        p += w;
+        len -= (size_t)w;
+    }
+    return 0;
+}
+
 /* Handle a single HTTP request */
 static void handle_request(int client_fd) {
     char buf[1024];
@@ -109,7 +129,7 @@ static void handle_request(int client_fd) {
 
     if (strcmp(method, "GET") != 0) {
         const char *resp = "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
-        send(client_fd, resp, strlen(resp), 0);
+        send_all(client_fd, resp, strlen(resp));
         close(client_fd);
         return;
     }
@@ -121,7 +141,7 @@ static void handle_request(int client_fd) {
         printf("[%s] Snapshot capture returned: %d\n", TAG, ret);
         if (ret < 0) {
             const char *resp = "HTTP/1.1 503 Snapshot Failed\r\nContent-Length: 0\r\n\r\n";
-            send(client_fd, resp, strlen(resp), 0);
+            send_all(client_fd, resp, strlen(resp));
             close(client_fd);
             return;
         }
@@ -130,7 +150,7 @@ static void handle_request(int client_fd) {
         char *snapFile = find_latest_snapshot();
         if (!snapFile || access(snapFile, R_OK) != 0) {
             const char *resp = "HTTP/1.1 404 No Snapshot\r\nContent-Length: 0\r\n\r\n";
-            send(client_fd, resp, strlen(resp), 0);
+            send_all(client_fd, resp, strlen(resp));
             close(client_fd);
             return;
         }
@@ -149,7 +169,7 @@ static void handle_request(int client_fd) {
             "Cache-Control: no-cache\r\n"
             "Connection: close\r\n"
             "\r\n", fileSize);
-        send(client_fd, header, hlen, 0);
+        send_all(client_fd, header, hlen);
 
         /* Send file data */
         int fd = open(snapFile, O_RDONLY);
@@ -160,7 +180,7 @@ static void handle_request(int client_fd) {
                 int toRead = remaining > (int)sizeof(fileBuf) ? (int)sizeof(fileBuf) : remaining;
                 int r = read(fd, fileBuf, toRead);
                 if (r <= 0) break;
-                send(client_fd, fileBuf, r, 0);
+                send_all(client_fd, fileBuf, r);
                 remaining -= r;
             }
             close(fd);
@@ -186,12 +206,12 @@ static void handle_request(int client_fd) {
             "Content-Length: %d\r\n"
             "Connection: close\r\n"
             "\r\n", blen);
-        send(client_fd, header, hlen, 0);
-        send(client_fd, body, blen, 0);
+        send_all(client_fd, header, hlen);
+        send_all(client_fd, body, blen);
 
     } else {
         const char *resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-        send(client_fd, resp, strlen(resp), 0);
+        send_all(client_fd, resp, strlen(resp));
     }
 
     close(client_fd);
@@ -238,6 +258,13 @@ static void *http_server_thread(void *arg) {
             if (g_running) printf("[%s] accept() failed: %s\n", TAG, strerror(errno));
             continue;
         }
+        /* Bound how long a single client can stall this single-threaded
+         * server (slow request line or a slow drain of the response). */
+        struct timeval tv;
+        tv.tv_sec = 5;
+        tv.tv_usec = 0;
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
         handle_request(client_fd);
     }
 
@@ -250,6 +277,7 @@ static void *http_server_thread(void *arg) {
 int http_server_start(int port) {
     g_port = port;
     g_running = 1;
+    signal(SIGPIPE, SIG_IGN);   /* send() to a closed client returns EPIPE, not SIGTERM */
 
     int ret = pthread_create(&g_thread, NULL, http_server_thread, NULL);
     if (ret != 0) {
