@@ -227,6 +227,21 @@ typedef struct{
 	/* http server for snapshots */
 	int http_enabled;
 	int http_port;           /* default 8080 */
+	/* smart encoding mode parameters */
+	int SMART_MAXQP;
+	int SMART_MINQP;
+	int SMART_STATIC_TIME;
+	int SMART_QUALITY_LVL;
+	int SMART_MAX_BITRATE;
+	int SMART_FRM_QPSTEP;
+	int SMART_GOP_QPSTEP;
+	int SMART_CHANGE_POS;
+	/* night mode: runtime encoding overrides (0=disabled) */
+	int NIGHT_FPS_NUM;
+	int NIGHT_FPS_DEN;
+	int NIGHT_BITRATE;
+	int NIGHT_MAXQP;
+	int NIGHT_QUALITY_LVL;
 } app_config_t;
 
 int app_config_parse(const char *ini_path, app_config_t *config);

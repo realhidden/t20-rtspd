@@ -517,6 +517,32 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->http_enabled = atoi(value);
 	} else if (MATCH("http", "PORT")){
 		pconfig->http_port = atoi(value);
+	} else if (MATCH("smart", "MAXQP")){
+		pconfig->SMART_MAXQP = atoi(value);
+	} else if (MATCH("smart", "MINQP")){
+		pconfig->SMART_MINQP = atoi(value);
+	} else if (MATCH("smart", "STATIC_TIME")){
+		pconfig->SMART_STATIC_TIME = atoi(value);
+	} else if (MATCH("smart", "QUALITY_LVL")){
+		pconfig->SMART_QUALITY_LVL = atoi(value);
+	} else if (MATCH("smart", "MAX_BITRATE")){
+		pconfig->SMART_MAX_BITRATE = atoi(value);
+	} else if (MATCH("smart", "FRM_QPSTEP")){
+		pconfig->SMART_FRM_QPSTEP = atoi(value);
+	} else if (MATCH("smart", "GOP_QPSTEP")){
+		pconfig->SMART_GOP_QPSTEP = atoi(value);
+	} else if (MATCH("smart", "CHANGE_POS")){
+		pconfig->SMART_CHANGE_POS = atoi(value);
+	} else if (MATCH("night", "FPS_NUM")){
+		pconfig->NIGHT_FPS_NUM = atoi(value);
+	} else if (MATCH("night", "FPS_DEN")){
+		pconfig->NIGHT_FPS_DEN = atoi(value);
+	} else if (MATCH("night", "BITRATE")){
+		pconfig->NIGHT_BITRATE = atoi(value);
+	} else if (MATCH("night", "MAXQP")){
+		pconfig->NIGHT_MAXQP = atoi(value);
+	} else if (MATCH("night", "QUALITY_LVL")){
+		pconfig->NIGHT_QUALITY_LVL = atoi(value);
 	} else {
 		return 0;
 	}
@@ -546,6 +572,21 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->audio_sample_rate = 8000;
 	config->http_enabled = 0;
 	config->http_port = 8080;
+	/* Smart mode defaults — optimized for indoor cameras */
+	config->SMART_MAXQP = 40;
+	config->SMART_MINQP = 0;
+	config->SMART_STATIC_TIME = 2;
+	config->SMART_QUALITY_LVL = 3;
+	config->SMART_MAX_BITRATE = 5000;
+	config->SMART_FRM_QPSTEP = 3;
+	config->SMART_GOP_QPSTEP = 15;
+	config->SMART_CHANGE_POS = 80;
+	/* Night mode: 0 = disabled */
+	config->NIGHT_FPS_NUM = 0;
+	config->NIGHT_FPS_DEN = 0;
+	config->NIGHT_BITRATE = 0;
+	config->NIGHT_MAXQP = 0;
+	config->NIGHT_QUALITY_LVL = 0;
 
 	if (ini_parse(ini_path, handler, config) < 0) {
 		printf("[config] Can't load %s\n", ini_path);
@@ -689,15 +730,15 @@ int sample_encoder_init()
             } else if (S_RC_METHOD == ENC_RC_MODE_SMART) {
 				printf("SMART MODE SELECTED \n");
                 rc_attr->attrRcMode.rcMode = ENC_RC_MODE_SMART;
-                rc_attr->attrRcMode.attrH264Smart.maxQp = 25;
-                rc_attr->attrRcMode.attrH264Smart.minQp = 0;
-                rc_attr->attrRcMode.attrH264Smart.staticTime = 2;
-                rc_attr->attrRcMode.attrH264Smart.maxBitRate = (double)10000.0 * (imp_chn_attr_tmp->picWidth * imp_chn_attr_tmp->picHeight) / (1920 * 1080);
+                rc_attr->attrRcMode.attrH264Smart.maxQp = config.SMART_MAXQP;
+                rc_attr->attrRcMode.attrH264Smart.minQp = config.SMART_MINQP;
+                rc_attr->attrRcMode.attrH264Smart.staticTime = config.SMART_STATIC_TIME;
+                rc_attr->attrRcMode.attrH264Smart.maxBitRate = (double)config.SMART_MAX_BITRATE * (imp_chn_attr_tmp->picWidth * imp_chn_attr_tmp->picHeight) / (1920 * 1080);
                 rc_attr->attrRcMode.attrH264Smart.iBiasLvl = 0;
-                rc_attr->attrRcMode.attrH264Smart.changePos = 80;
-                rc_attr->attrRcMode.attrH264Smart.qualityLvl = 1;
-                rc_attr->attrRcMode.attrH264Smart.frmQPStep = 3;
-                rc_attr->attrRcMode.attrH264Smart.gopQPStep = 15;
+                rc_attr->attrRcMode.attrH264Smart.changePos = config.SMART_CHANGE_POS;
+                rc_attr->attrRcMode.attrH264Smart.qualityLvl = config.SMART_QUALITY_LVL;
+                rc_attr->attrRcMode.attrH264Smart.frmQPStep = config.SMART_FRM_QPSTEP;
+                rc_attr->attrRcMode.attrH264Smart.gopQPStep = config.SMART_GOP_QPSTEP;
                 rc_attr->attrRcMode.attrH264Smart.gopRelation = false;
 
                 rc_attr->attrHSkip.hSkipAttr.skipType = IMP_Encoder_STYPE_N1X;

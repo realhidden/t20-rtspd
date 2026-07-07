@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/uio.h>
+#include <signal.h>
 
 #include <ini.h>
 
@@ -44,6 +45,58 @@ extern int IMP_Encoder_SetPoolSize(int newPoolSize0);
 int grpNum = 0;
 IMPRgnHandle *prHander;
 static volatile int g_osd_active = 0;
+volatile int g_night_mode = 0;
+static app_config_t *g_app_config = NULL;
+
+static void sigusr1_handler(int sig) {
+	(void)sig;
+	g_night_mode = !g_night_mode;
+}
+
+void apply_night_encoding(int night) {
+	if (!g_app_config) return;
+	int encChn = ENC_H264_CHANNEL;
+
+	IMPEncoderAttrRcMode rcMode;
+	int ret = IMP_Encoder_GetChnAttrRcMode(encChn, &rcMode);
+	if (ret != 0) { printf("[night] GetChnRcMode failed: %d\n", ret); return; }
+
+	if (night && g_app_config->NIGHT_MAXQP > 0) {
+		printf("[night] Switching to NIGHT encoding (maxQp=%d bitrate=%d)\n",
+			g_app_config->NIGHT_MAXQP, g_app_config->NIGHT_BITRATE);
+		rcMode.attrH264Smart.maxQp = g_app_config->NIGHT_MAXQP;
+		if (g_app_config->NIGHT_BITRATE > 0)
+			rcMode.attrH264Smart.maxBitRate = (double)g_app_config->NIGHT_BITRATE *
+				(chn[0].fs_chn_attr.picWidth * chn[0].fs_chn_attr.picHeight) / (1920 * 1080);
+		if (g_app_config->NIGHT_QUALITY_LVL > 0)
+			rcMode.attrH264Smart.qualityLvl = g_app_config->NIGHT_QUALITY_LVL;
+	} else {
+		printf("[night] Switching to DAY encoding (maxQp=%d)\n", g_app_config->SMART_MAXQP);
+		rcMode.attrH264Smart.maxQp = g_app_config->SMART_MAXQP;
+		rcMode.attrH264Smart.maxBitRate = (double)g_app_config->SMART_MAX_BITRATE *
+			(chn[0].fs_chn_attr.picWidth * chn[0].fs_chn_attr.picHeight) / (1920 * 1080);
+		rcMode.attrH264Smart.qualityLvl = g_app_config->SMART_QUALITY_LVL;
+	}
+
+	ret = IMP_Encoder_SetChnAttrRcMode(encChn, &rcMode);
+	if (ret != 0) printf("[night] SetChnRcMode failed: %d\n", ret);
+
+	if (night && g_app_config->NIGHT_FPS_NUM > 0) {
+		IMPEncoderFrmRate fps;
+		fps.frmRateNum = g_app_config->NIGHT_FPS_NUM;
+		fps.frmRateDen = g_app_config->NIGHT_FPS_DEN;
+		ret = IMP_Encoder_SetChnFrmRate(encChn, &fps);
+		if (ret != 0) printf("[night] SetChnFrmRate failed: %d\n", ret);
+		else printf("[night] FPS set to %d/%d\n", fps.frmRateNum, fps.frmRateDen);
+	} else if (!night && g_app_config->RATENUM > 0) {
+		IMPEncoderFrmRate fps;
+		fps.frmRateNum = g_app_config->RATENUM;
+		fps.frmRateDen = g_app_config->RATEDEN;
+		ret = IMP_Encoder_SetChnFrmRate(encChn, &fps);
+		if (ret != 0) printf("[night] SetChnFrmRate restore failed: %d\n", ret);
+		else printf("[night] FPS restored to %d/%d\n", fps.frmRateNum, fps.frmRateDen);
+	}
+}
 
 int destory()
 {
@@ -249,10 +302,22 @@ static void *update_thread(void *p)
         return NULL;
 }
 
-int capture_and_encoding()
+int capture_and_encoding(void *cfg)
 {
 	int ret = 0;
 	int i = 0;
+	app_config_t *config = (app_config_t *)cfg;
+
+	/* Store config for runtime night mode switching */
+	g_app_config = config;
+
+	/* Register SIGUSR1 for night mode toggle */
+	struct sigaction sa;
+	sa.sa_handler = sigusr1_handler;
+	sa.sa_flags = SA_RESTART;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGUSR1, &sa, NULL);
+	printf("[capture] SIGUSR1 handler registered for night mode toggle\n");
 
 	
 	printf("[capture] Initializing pipeline...\n");
