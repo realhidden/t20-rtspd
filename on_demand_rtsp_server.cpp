@@ -51,9 +51,12 @@ static void signal_handler(int sig)
 
 static void sigchld_handler(int sig)
 {
-	/* Reap zombie child processes */
+	/* Reap zombie child processes. waitpid() can set errno, so preserve it
+	 * across the handler to avoid clobbering the interrupted code's errno. */
+	int saved_errno = errno;
 	while (waitpid(-1, NULL, WNOHANG) > 0)
 		;
+	errno = saved_errno;
 }
 
 static void announceStream(RTSPServer* rtspServer, ServerMediaSession* sms,
