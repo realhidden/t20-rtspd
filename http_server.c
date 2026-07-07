@@ -23,6 +23,7 @@
 #include <time.h>
 #include <signal.h>
 #include <sys/time.h>
+#include <dirent.h>
 
 #include "http_server.h"
 
@@ -56,6 +57,16 @@ static int capture_snapshot(void) {
     return sample_do_get_jpeg_snap();
 }
 
+/* Match the snap-<...>.jpg naming used by sample_do_get_jpeg_snap */
+static int is_snap_jpg(const char *name) {
+    size_t len = strlen(name);
+    const char *suffix = ".jpg";
+    size_t slen = strlen(suffix);
+    if (len <= slen) return 0;
+    if (strcmp(name + len - slen, suffix) != 0) return 0;
+    return strncmp(name, "snap-", 5) == 0;
+}
+
 /* Find the latest snapshot file */
 static char *find_latest_snapshot(void) {
     static char snapPath[256];
@@ -72,23 +83,38 @@ static char *find_latest_snapshot(void) {
     time_t newest = 0;
     int d;
     for (d = 0; dirs[d]; d++) {
-        char cmd[512];
-        snprintf(cmd, sizeof(cmd), "ls -t %s/snap-*.jpg 2>/dev/null | head -1", dirs[d]);
-        FILE *pipe = popen(cmd, "r");
-        if (!pipe) continue;
+        /* opendir/readdir instead of popen("ls -t ... | head -1"): the fork
+         * from popen raced the global SIGCHLD handler (which reaps any child),
+         * making pclose intermittently return ECHILD and the snapshot lookup
+         * flakily miss. This also checks stat()'s return. */
+        DIR *dirp = opendir(dirs[d]);
+        if (!dirp) continue;
 
-        char buf[256];
-        if (fgets(buf, sizeof(buf), pipe)) {
-            /* Remove trailing newline */
-            buf[strcspn(buf, "\n")] = '\0';
+        time_t dirNewest = 0;
+        char dirNewestPath[256];
+        dirNewestPath[0] = '\0';
 
+        struct dirent *de;
+        while ((de = readdir(dirp)) != NULL) {
+            if (!is_snap_jpg(de->d_name)) continue;
+            char full[256];
+            int plen = snprintf(full, sizeof(full), "%s/%s", dirs[d], de->d_name);
+            if (plen < 0 || (size_t)plen >= sizeof(full)) continue;
             struct stat st;
-            if (stat(buf, &st) == 0 && st.st_mtime > newest) {
-                newest = st.st_mtime;
-                strncpy(snapPath, buf, sizeof(snapPath) - 1);
+            if (stat(full, &st) != 0) continue;
+            if (st.st_mtime > dirNewest) {
+                dirNewest = st.st_mtime;
+                strncpy(dirNewestPath, full, sizeof(dirNewestPath) - 1);
+                dirNewestPath[sizeof(dirNewestPath) - 1] = '\0';
             }
         }
-        pclose(pipe);
+        closedir(dirp);
+
+        if (dirNewest > newest) {
+            newest = dirNewest;
+            strncpy(snapPath, dirNewestPath, sizeof(snapPath) - 1);
+            snapPath[sizeof(snapPath) - 1] = '\0';
+        }
     }
 
     return snapPath[0] ? snapPath : NULL;
