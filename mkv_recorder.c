@@ -34,8 +34,7 @@ static int g_got_extradata = 0;
 
 static int64_t g_chunk_start_time = 0;  /* seconds since epoch */
 static int64_t g_frame_count = 0;
-static int64_t g_first_pts = -1;
-static int64_t g_first_audio_pts = -1;  /* first audio PTS (µs) for the current chunk */
+static int64_t g_first_pts = -1;  /* chunk origin: first video IDR PTS (µs), shared by audio */
 static int g_pkt_duration = 0;  /* pre-computed frame duration in stream time_base */
 
 static uint8_t *g_frame_buf = NULL;
@@ -184,7 +183,6 @@ static int open_new_chunk(void)
 	g_chunk_start_time = (int64_t)now;
 	g_frame_count = 0;
 	g_first_pts = -1;
-	g_first_audio_pts = -1;
 
 	/* Pre-compute frame duration in stream time_base */
 	g_pkt_duration = av_rescale_q(1,
@@ -206,7 +204,6 @@ static void close_current_chunk(void)
 	g_video_stream = NULL;
 	g_audio_stream = NULL;
 	g_first_pts = -1;
-	g_first_audio_pts = -1;
 }
 
 /* Single pass: detect IDR and cache SPS/PPS if this is an IDR frame.
@@ -424,8 +421,14 @@ int mkv_recorder_write_audio_frame(const uint8_t *data, int len, int64_t pts_us)
 		return 0;
 	}
 
-	if (g_first_audio_pts < 0)
-		g_first_audio_pts = pts_us;
+	/* Share the video IDR baseline (g_first_pts) so A/V stays aligned.
+	 * Using a separate audio baseline mapped the first audio frame of each
+	 * chunk to t=0 even though it was recorded ~one frame after the IDR,
+	 * so audio played early every chunk. g_first_pts is already set by the
+	 * time we get here — the recorder opens a chunk on the video IDR while
+	 * holding this same mutex. */
+	if (g_first_pts < 0)
+		g_first_pts = pts_us;
 
 	AVPacket pkt;
 	memset(&pkt, 0, sizeof(pkt));
@@ -441,7 +444,7 @@ int mkv_recorder_write_audio_frame(const uint8_t *data, int len, int64_t pts_us)
 	pkt.duration = len;
 
 	AVRational us_tb = {1, 1000000};
-	pkt.pts = av_rescale_q(pts_us - g_first_audio_pts, us_tb, g_audio_stream->time_base);
+	pkt.pts = av_rescale_q(pts_us - g_first_pts, us_tb, g_audio_stream->time_base);
 	pkt.dts = pkt.pts;
 
 	int ret = av_interleaved_write_frame(g_fmt_ctx, &pkt);
