@@ -117,6 +117,21 @@ int main(int argc, char** argv) {
 				size_t len = strlen(g_camera_name);
 				while (len > 0 && (g_camera_name[len-1] == '\n' || g_camera_name[len-1] == '\r'))
 					g_camera_name[--len] = '\0';
+				/* Sanitize to [A-Za-z0-9_-]. This value is later interpolated
+				 * unsubstituted into a system() shell command (mDNS announce)
+				 * and into the /status JSON body, so any other character —
+				 * quotes, ';', '$', backticks, etc. — is a command-injection
+				 * vector (the daemon runs as root). Filter in place. */
+				size_t w = 0;
+				for (size_t i = 0; i < len; i++) {
+					char c = g_camera_name[i];
+					if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+					    (c >= '0' && c <= '9') || c == '_' || c == '-')
+						g_camera_name[w++] = c;
+				}
+				g_camera_name[w] = '\0';
+				if (w == 0)
+					strcpy(g_camera_name, "unknown");
 			}
 			fclose(f);
 		}
