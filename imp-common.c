@@ -544,7 +544,11 @@ static int handler(void* user, const char* section, const char* name, const char
 	} else if (MATCH("night", "QUALITY_LVL")){
 		pconfig->NIGHT_QUALITY_LVL = atoi(value);
 	} else {
-		return 0;
+		/* Unknown key/section: ignore rather than signal an error. minIni
+		 * treats a 0 return as a parse error (it stops/aborts and returns
+		 * the line number); returning 1 keeps the [telemetry] section —
+		 * which this daemon doesn't consume — from poisoning the parse. */
+		return 1;
 	}
 	return 1;
 }
