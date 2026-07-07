@@ -1264,42 +1264,51 @@ int sample_do_get_jpeg_snap(void)
 	int snap_fd = open(snap_path, O_RDWR | O_CREAT | O_TRUNC, 0777);
 	if (snap_fd < 0) {
 		IMP_LOG_ERR(TAG, "failed: %s\n", strerror(errno));
-		return -1;
+		ret = -1;
+		goto stop_recv;
 	}
 	IMP_LOG_DBG(TAG, "OK\n");
+
+	IMPEncoderStream stream;
+	int have_stream = 0;
 
 	/* Polling JPEG Snap, set timeout as 1000msec */
 	ret = IMP_Encoder_PollingStream(ENC_JPEG_CHANNEL, 1000);
 	if (ret < 0) {
 		IMP_LOG_ERR(TAG, "Polling stream timeout\n");
-		return -1;
+		ret = -1;
+		goto cleanup;
 	}
 
-	IMPEncoderStream stream;
 	/* Get JPEG Snap */
 	ret = IMP_Encoder_GetStream(ENC_JPEG_CHANNEL, &stream, 1);
 	if (ret < 0) {
 		IMP_LOG_ERR(TAG, "IMP_Encoder_GetStream() failed\n");
-		return -1;
+		ret = -1;
+		goto cleanup;
 	}
+	have_stream = 1;
 
 	ret = save_stream(snap_fd, &stream);
-	if (ret < 0) {
+	if (ret < 0)
+		IMP_LOG_ERR(TAG, "save_stream() failed\n");
+
+cleanup:
+	if (have_stream)
+		IMP_Encoder_ReleaseStream(ENC_JPEG_CHANNEL, &stream);
+	if (snap_fd >= 0)
 		close(snap_fd);
-		return ret;
+
+stop_recv:
+	{
+		/* Always balance StartRecvPic — leaving the channel in receive mode
+		 * makes every later snapshot fail until the daemon restarts. */
+		int sr = IMP_Encoder_StopRecvPic(ENC_JPEG_CHANNEL);
+		if (sr < 0)
+			IMP_LOG_ERR(TAG, "IMP_Encoder_StopRecvPic() failed\n");
 	}
 
-	IMP_Encoder_ReleaseStream(ENC_JPEG_CHANNEL, &stream);
-
-	close(snap_fd);
-
-	ret = IMP_Encoder_StopRecvPic(ENC_JPEG_CHANNEL);
-	if (ret < 0) {
-		IMP_LOG_ERR(TAG, "IMP_Encoder_StopRecvPic() failed\n");
-		return -1;
-	}
-
-	return 0;
+	return ret;
 }
 
 void *get_h264_stream(void *args)
