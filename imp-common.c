@@ -543,6 +543,18 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->NIGHT_MAXQP = atoi(value);
 	} else if (MATCH("night", "QUALITY_LVL")){
 		pconfig->NIGHT_QUALITY_LVL = atoi(value);
+	} else if (MATCH("autonight", "ENABLED")){
+		pconfig->AUTONIGHT_ENABLED = atoi(value);
+	} else if (MATCH("autonight", "NIGHT_THRESH")){
+		pconfig->AUTONIGHT_NIGHT_THRESH = atoi(value);
+	} else if (MATCH("autonight", "DAY_THRESH")){
+		pconfig->AUTONIGHT_DAY_THRESH = atoi(value);
+	} else if (MATCH("autonight", "IR_LED_THRESH")){
+		pconfig->AUTONIGHT_IR_LED_THRESH = atoi(value);
+	} else if (MATCH("autonight", "IR_LED_OFF")){
+		pconfig->AUTONIGHT_IR_LED_OFF = atoi(value);
+	} else if (MATCH("autonight", "INTERVAL")){
+		pconfig->AUTONIGHT_INTERVAL = atoi(value);
 	} else {
 		/* Unknown key/section: ignore rather than signal an error. minIni
 		 * treats a 0 return as a parse error (it stops/aborts and returns
@@ -591,6 +603,13 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->NIGHT_BITRATE = 0;
 	config->NIGHT_MAXQP = 0;
 	config->NIGHT_QUALITY_LVL = 0;
+	/* Autonight: built-in photosensitive detection */
+	config->AUTONIGHT_ENABLED = 0;
+	config->AUTONIGHT_NIGHT_THRESH = 1200000;
+	config->AUTONIGHT_DAY_THRESH = 930000;
+	config->AUTONIGHT_IR_LED_THRESH = 3000000;
+	config->AUTONIGHT_IR_LED_OFF = 0;
+	config->AUTONIGHT_INTERVAL = 3;
 
 	if (ini_parse(ini_path, handler, config) < 0) {
 		printf("[config] Can't load %s\n", ini_path);
@@ -1517,8 +1536,20 @@ char *get_curr_timestr(char *buf) {
 }
 
 static int  g_soft_ps_running = 1;
+
+/* Defined in capture_and_encoding.cpp (C++) — linked at object level */
+extern void apply_night_encoding(int night);
+
 void *sample_soft_photosensitive_ctrl(void *p)
 {
+	/* Legacy entry point for external callers (no config) */
+	(void)p;
+	return NULL;
+}
+
+void *sample_soft_photosensitive_thread(void *p)
+{
+	app_config_t *cfg = (app_config_t *)p;
 	int evDebugCount = 10000;
 	int ev_err_count = 0;
 	char tmstr[16];
@@ -1526,23 +1557,16 @@ void *sample_soft_photosensitive_ctrl(void *p)
 	int avgExp_init = 0;
 	IMPISPRunningMode pmode;
 	int ir_leds_active = 0;
-	int r;
+	int last_night_state = -1;
 
-	// initialize PWM
-	struct pwm_ioctl_t pwm_cfg = {
-		.channel = 0,
-		.period  = 1000000,
-		.duty    = 0,
-		.polarity = 1,
-	};
+	int night_thresh = cfg->AUTONIGHT_NIGHT_THRESH;
+	int day_thresh = cfg->AUTONIGHT_DAY_THRESH;
+	int ir_led_thresh = cfg->AUTONIGHT_IR_LED_THRESH;
+	int ir_led_off = cfg->AUTONIGHT_IR_LED_OFF;
+	int interval = cfg->AUTONIGHT_INTERVAL;
 
-	if (pwm_init() < 0) {
-		IMP_LOG_INFO(TAG, "cant pwm_init(): errno %d", errno);
-	} else if ((r = pwm_config(&pwm_cfg)) < 0) {
-		IMP_LOG_INFO(TAG, "cant config pwm: %d, errno %d", r, errno);
-	} else if ((r = pwm_enable(pwm_cfg.channel)) < 0) {
-		IMP_LOG_INFO(TAG, "cant enable pwm channel: %d, errno %d", r, errno);
-	}
+	printf("[autonight] Starting: night_thresh=%d day_thresh=%d ir_led_thresh=%d interval=%ds ir_led_off=%d\n",
+			night_thresh, day_thresh, ir_led_thresh, interval, ir_led_off);
 
 	while (g_soft_ps_running) {
 		IMPISPEVAttr expAttr;
@@ -1550,17 +1574,17 @@ void *sample_soft_photosensitive_ctrl(void *p)
 		if (ret != 0) {
 			ev_err_count++;
 			if (ev_err_count <= 3)
-				printf("GetEVAttr failed (%d), retrying...\n", ev_err_count);
-			sleep(1);
+				printf("[autonight] GetEVAttr failed (%d), retrying...\n", ev_err_count);
+			sleep(interval);
 			continue;
 		}
 		if (ev_err_count > 0) {
-			printf("GetEVAttr recovered after %d failures\n", ev_err_count);
+			printf("[autonight] GetEVAttr recovered after %d failures\n", ev_err_count);
 			ev_err_count = 0;
 		}
 
 		if (evDebugCount > 0) {
-			printf("EV attr: exp %d aGain %d dGain %d\n",
+			printf("[autonight] EV: exp %d aGain %d dGain %d\n",
 					expAttr.ev, expAttr.again, expAttr.dgain);
 			evDebugCount--;
 		}
@@ -1575,55 +1599,57 @@ void *sample_soft_photosensitive_ctrl(void *p)
 
 		IMP_ISP_Tuning_GetISPRunningMode(&pmode);
 
-		if (avgExp > 1900000) {
+		/* Night/day ISP mode switching */
+		if (avgExp > night_thresh) {
 			if (pmode != IMPISP_RUNNING_MODE_NIGHT) {
-				printf("[%s] avg exp is %d. switching to night mode\n",
-						get_curr_timestr((char *) &tmstr), avgExp);
-				evDebugCount = 10; // start logging 10s of EV data
-
+				printf("[%s] avgExp %d > %d -> NIGHT\n",
+						get_curr_timestr((char *) &tmstr), avgExp, night_thresh);
+				evDebugCount = 10;
 				IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_NIGHT);
 				sample_set_IRCUT(1);
 			}
-		} else if (avgExp < 479832) {
+		} else if (avgExp < day_thresh) {
 			if (pmode != IMPISP_RUNNING_MODE_DAY) {
-				printf("[%s] avg exp is %d. switching to day mode\n",
-						get_curr_timestr((char *) &tmstr), avgExp);
-				evDebugCount = 10; // start logging 10s of EV data
-
+				printf("[%s] avgExp %d < %d -> DAY\n",
+						get_curr_timestr((char *) &tmstr), avgExp, day_thresh);
+				evDebugCount = 10;
 				IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_DAY);
 				sample_set_IRCUT(0);
 			}
 		}
 
-		// control IR LEDs
-		if (avgExp > 3000000) {
-			// only log for first time
-			if (! ir_leds_active) {
-				printf("[%s] avg exp is %d. turning on IR LEDs\n",
-						get_curr_timestr((char *) &tmstr), avgExp);
-				evDebugCount = 10; // start logging 10s of EV data
+		/* Signal t20rtspd encoding adjustment on state change */
+		{
+			int is_night = (avgExp > night_thresh) ? 1 : 0;
+			if (is_night != last_night_state) {
+				g_night_mode = is_night;
+				apply_night_encoding(is_night);
+				printf("[%s] Night mode %s (avgExp=%d)\n",
+						get_curr_timestr((char *) &tmstr),
+						is_night ? "ON" : "OFF", avgExp);
+				last_night_state = is_night;
 			}
-
-			// map 3 to 13mil => 1 to 1mil for PWM
-			int level = (avgExp - 3000000) / 10;
-			// cap to maximum
-			if (level > pwm_cfg.period)
-				level = pwm_cfg.period;
-
-			//pwm_set_duty(pwm_cfg.channel, level);
-			sample_set_IRLED(1);
-			ir_leds_active = 1;
-		} else if (ir_leds_active) {
-			printf("[%s] avg exp is %d. turning off IR LEDs\n",
-						get_curr_timestr((char *) &tmstr), avgExp);
-			evDebugCount = 10; // start logging 10s of EV data
-
-			//pwm_set_duty(pwm_cfg.channel, 0);
-			sample_set_IRLED(0);
-			ir_leds_active = 0;
 		}
 
-		sleep(1);
+		/* IR LED control */
+		{
+			int want_on = (avgExp > ir_led_thresh) ? 1 : 0;
+			if (ir_led_off) want_on = !want_on;
+
+			if (want_on && !ir_leds_active) {
+				printf("[%s] avgExp %d -> IR LEDs ON\n",
+						get_curr_timestr((char *) &tmstr), avgExp);
+				sample_set_IRLED(1);
+				ir_leds_active = 1;
+			} else if (!want_on && ir_leds_active) {
+				printf("[%s] avgExp %d -> IR LEDs OFF\n",
+						get_curr_timestr((char *) &tmstr), avgExp);
+				sample_set_IRLED(0);
+				ir_leds_active = 0;
+			}
+		}
+
+		sleep(interval);
 	}
 
 	return NULL;

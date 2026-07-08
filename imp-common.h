@@ -242,6 +242,13 @@ typedef struct{
 	int NIGHT_BITRATE;
 	int NIGHT_MAXQP;
 	int NIGHT_QUALITY_LVL;
+	/* autonight: built-in photosensitive detection */
+	int AUTONIGHT_ENABLED;
+	int AUTONIGHT_NIGHT_THRESH;
+	int AUTONIGHT_DAY_THRESH;
+	int AUTONIGHT_IR_LED_THRESH;
+	int AUTONIGHT_IR_LED_OFF;
+	int AUTONIGHT_INTERVAL;
 } app_config_t;
 
 int app_config_parse(const char *ini_path, app_config_t *config);
@@ -290,6 +297,16 @@ int sample_get_h264_stream();
 int sample_do_get_jpeg_snap(void);
 int sample_get_jpeg_snap();
 void *sample_soft_photosensitive_ctrl(void *p);
+void *sample_soft_photosensitive_thread(void *p);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern volatile int g_night_mode;
+void apply_night_encoding(int night);
+#ifdef __cplusplus
+}
+#endif
 
 
 #ifdef __cplusplus
