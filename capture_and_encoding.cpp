@@ -40,7 +40,6 @@ extern int IMP_Encoder_SetPoolSize(int newPoolSize0);
 }
 
 //#define ENABLED_OSD 1
-//#define NIGHTMODE_SWITCH 1
 
 int grpNum = 0;
 IMPRgnHandle *prHander;
@@ -435,14 +434,14 @@ int capture_and_encoding(void *cfg)
 	printf("[capture] FrameSource streaming\n");
 
 
-	// start thread for activating night mode & IR cut filter
-#ifdef NIGHTMODE_SWITCH
-    printf("[capture] Night mode thread starting\n");
-	pthread_t thread_info;
-	pthread_create(&thread_info, NULL, sample_soft_photosensitive_ctrl, NULL);
-#else
-    printf("[capture] Night mode disabled at compile time\n");
-#endif
+	// start thread for autonight detection if enabled
+	if (config->AUTONIGHT_ENABLED) {
+		printf("[capture] Autonight thread starting\n");
+		pthread_t autonight_tid;
+		pthread_create(&autonight_tid, NULL, sample_soft_photosensitive_thread, config);
+	} else {
+		printf("[capture] Autonight disabled (set [autonight] ENABLED=1 in config)\n");
+	}
 
 	printf("[capture] Pipeline ready\n");
 	return 0;

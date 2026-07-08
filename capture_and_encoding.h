@@ -10,6 +10,5 @@ int capture_and_encoding(void *config);
 int destory(void);
 int save_stream_to_fd(int fd, IMPEncoderStream *stream);
 int start_encoder_receiving(int chn);
-void apply_night_encoding(int night);
 
 #endif
