@@ -16,7 +16,7 @@
 
 #define TAG "https_client"
 #define CA_CERT_PATH "/system/sdcard/config/cacert.pem"
-#define READ_TIMEOUT_MS 10000
+#define READ_TIMEOUT_MS 60000
 #define RESPONSE_BUF_SIZE 1024
 
 /* Global state (initialized once) */
