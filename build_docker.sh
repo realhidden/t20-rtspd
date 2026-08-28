@@ -16,13 +16,16 @@ fi
 export PATH=/build/mips-gcc472-glibc216-64bit/bin/:$PATH
 
 echo "=== Step 2: Cross-compiling minimal FFmpeg ==="
+FFMPEG_VERSION=4.4.8
+FFMPEG_SHA256=c73848c4ae283d9eaee7be3b276affbc3543380483555500d0dd2c9b7e1c39c3
 if [ ! -f /build/ffmpeg-mips-install/lib/libavformat.a ]; then
     cd /build
-    if [ ! -d /build/ffmpeg-4.4.6 ]; then
-        wget -q https://ffmpeg.org/releases/ffmpeg-4.4.6.tar.xz
-        tar xf ffmpeg-4.4.6.tar.xz
+    if [ ! -d /build/ffmpeg-$FFMPEG_VERSION ]; then
+        wget -q https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz
+        echo "$FFMPEG_SHA256  ffmpeg-$FFMPEG_VERSION.tar.xz" | sha256sum -c -
+        tar xf ffmpeg-$FFMPEG_VERSION.tar.xz
     fi
-    cd /build/ffmpeg-4.4.6
+    cd /build/ffmpeg-$FFMPEG_VERSION
     ./configure \
         --cross-prefix=mips-linux-uclibc-gnu- --arch=mips --target-os=linux \
         --enable-cross-compile --enable-static --disable-shared --disable-programs --disable-doc \
@@ -40,13 +43,17 @@ if [ ! -f /build/ffmpeg-mips-install/lib/libavformat.a ]; then
 fi
 
 echo "=== Step 2b: Cross-compiling mbedtls ==="
+MBEDTLS_VERSION=2.28.10
+MBEDTLS_SHA256=19e5b81fdac0fe22009b9e2bdcd52d7dcafbf62bc67fc59cf0a76b5b5540d149
 if [ ! -f /build/mbedtls-mips-install/lib/libmbedtls.a ]; then
     cd /build
-    if [ ! -d /build/mbedtls-2.28.8 ]; then
-        cp /root/mbedtls-2.28.8.tar.bz2 /build/
-        tar xf mbedtls-2.28.8.tar.bz2
+    if [ ! -d /build/mbedtls-$MBEDTLS_VERSION ]; then
+        # 2.28.10 is the final 2.28 LTS release (fixes CVE-2025-27810/27809)
+        wget -q https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MBEDTLS_VERSION/mbedtls-$MBEDTLS_VERSION.tar.bz2
+        echo "$MBEDTLS_SHA256  mbedtls-$MBEDTLS_VERSION.tar.bz2" | sha256sum -c -
+        tar xf mbedtls-$MBEDTLS_VERSION.tar.bz2
     fi
-    cd /build/mbedtls-2.28.8
+    cd /build/mbedtls-$MBEDTLS_VERSION
     make -j$(nproc) CC=mips-linux-uclibc-gnu-gcc AR=mips-linux-uclibc-gnu-ar \
         CFLAGS="-O2 -march=mips32r2 -std=gnu99" lib
     make CC=mips-linux-uclibc-gnu-gcc AR=mips-linux-uclibc-gnu-ar \
