@@ -1,88 +1,56 @@
-T20L RTSP Server
+t20-rtspd — camera daemon for Ingenic T20/T20L
 ==================
 
-This project originally came from <https://github.com/beihuijie/carrier-rtsp-server>.
+A single-process camera daemon for Xiaomi Dafang / Xiaofang 1S style devices
+(Ingenic T20/T20L, MIPS32r2, uclibc). It captures H.264 from the IMP SDK and
+does everything on-device:
 
-It's a very spartan RTSP server, using the live555 library for RTSP implementation,
-and a FIFO file descriptor to feed the H.264 frames from the SDK example.
-It's not robust, but it works.
+- **MKV recording** — rotating chunks at IDR boundaries via a minimal static
+  FFmpeg (matroska muxer only), with a disk-usage guard
+- **HTTPS upload** — chunked, resumable-by-server upload of finished chunks to
+  a companion server, with static or adaptive (~80% of measured bandwidth)
+  rate limiting so cameras don't saturate the WiFi uplink
+- **JPEG snapshot server** — tiny HTTP server (`GET /snapshot`, `GET /status`)
+  for Home Assistant; announced over mDNS
+- **Autonight** — built-in day/night detection from ISP exposure (EMA with
+  hysteresis), IR-cut filter + IR LED control, and night encoding overrides
+- **Grafana Cloud push** — periodic metrics via InfluxDB line protocol
+- **Audio** — optional G.711A microphone track muxed into the MKV
 
-This repo differs by making it work with lower memory devices using the T20L variant,
-like the Xiaofang 1S. I have reverse-engineered the 1S binary in the firmware, 
-and found undocumented SDK calls to increase the pool sizes in order to allow
-the SDK to function under low memory.
+RTSP streaming was removed in 2026 — nothing in the target deployment used it
+(HA consumes snapshots; recordings go over HTTPS). It lives in git history if
+ever needed. The mDNS advertisement still uses the `_rtsp._tcp` service type
+with a `path=/snapshot` TXT record, which Home Assistant's zeroconf discovery
+matches on.
 
-The IR LEDs are now also software-controlled via PWM channel 0.
-The settings were also reversed from the 1S binary, and should work with the 
-WyzeCam v2 since they also got rid of the CdS photoresistor.
+## Building
 
-Also, you can find more technical information from the original 
-[Dafang Hacks project](https://github.com/EliasKotlyar/Xiaomi-Dafang-Hacks).
+Cross-compiled for MIPS with a 2012-era uclibc toolchain — build in Docker:
 
-Compilation (easy way)
-============
-
-With docker, in the project dir:
-```
-docker run --rm -ti -v $(pwd):/root/ debian
-```em
-
-```
-mkdir /build
-cd /build
-apt-get update
-apt-get install -y p7zip wget git build-essential
-apt-get install -y libcurl4-openssl-dev libssl-dev nlohmann-json3-dev
-wget https://github.com/Dafang-Hacks/Ingenic-T10_20/raw/master/resource/toolchain/mips-gcc472-glibc216-64bit-r2.3.3.7z
-p7zip -d mips-gcc472-glibc216-64bit-r2.3.3.7z
-export PATH=/build/mips-gcc472-glibc216-64bit/bin/:$PATH
-export PATH=/build/mips-gcc472-glibc216-64bit/lib64/:$PATH
-cd ~
-make
+```bash
+./build.sh        # runs build_docker.sh inside debian:bookworm (linux/amd64)
 ```
 
-Compilation (harder way)
-============
+The build downloads the pinned toolchain, FFmpeg 4.4.8 and mbedtls 2.28.10
+(sha256-verified) automatically. `make` alone also works if the toolchain and
+vendored libs under `lib/` and `include/` are already in place.
 
-1. Download the T20 toolchain, either from [the Dafang-Hacks GitHub repo](https://github.com/Dafang-Hacks/Ingenic-T10_20/tree/master/resource/toolchain) or the [Tuya GitHub repo](https://github.com/TuyaInc/TUYA_IPC_SDK/tree/master/mips-linux-4.7.2_64Bit).
+Output: a stripped `t20-rtspd` binary with the git commit hash embedded
+(`/tmp/version` on the device).
 
-2. Set up the `PATH` environment variable to add the toolchain directory.
+## Configuration
 
-2. Clone this repo
+Reads `/system/sdcard/config/donekamera.conf`, falling back to
+`/system/sdcard/config/test.ini`. See `exampleconf.ini` for all sections:
+`[user]` (encoding), `[smart]`, `[night]`, `[autonight]`, `[recording]`,
+`[upload]`, `[http]`, `[grafana]`, `[audio]`. Unknown sections/keys are
+ignored, so a shared config file can carry extra sections for other daemons.
 
-3. Run the `make` command.
-   You should end up with the `t20-rtspd` binary in the directory.
+## Credits
 
-License
-========
-
-The original source code doesn't really have a license.
-
-However, the newer changes made by me are licensed under **the 3-clause
-("modified") BSD License**, where applicable.
-
-Copyright (C) 2019 Darell Tan
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions
-are met:
-
-1. Redistributions of source code must retain the above copyright
-   notice, this list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright
-   notice, this list of conditions and the following disclaimer in the
-   documentation and/or other materials provided with the distribution.
-3. The name of the author may not be used to endorse or promote products
-   derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR
-IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
-OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
-IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
-INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
-NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
-THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+Originally an RTSP server derived from
+[carrier-rtsp-server](https://github.com/beihuijie/carrier-rtsp-server), then
+geekman's [t20-rtspd](https://github.com/geekman/t20-rtspd) (T20L pool-size
+hacks, PWM IR LED control), later extended with recording/upload/snapshot/
+autonight. Newer changes are 3-clause BSD licensed where applicable
+(Copyright 2019 Darell Tan; Copyright 2026 the t20-rtspd authors).

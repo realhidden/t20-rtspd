@@ -4,79 +4,71 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-T20-RTSPD is a lightweight RTSP server for the Ingenic T20/T20L SoC, targeting low-memory cameras like the Xiaomi Xiaofang 1S and WyzeCam v2. It captures H.264 video from the camera sensor and streams it via RTSP using the live555 library.
+t20-rtspd is a single-process camera daemon for Ingenic T20/T20L devices
+(Xiaomi Dafang / Xiaofang 1S, MIPS32r2 + uclibc, 64 MB RAM class). It captures
+H.264 via the IMP SDK, records rotating MKV chunks, uploads them over chunked
+HTTPS, serves JPEG snapshots over HTTP, and runs automatic night-mode
+switching. RTSP/live555 support was removed in 2026 — do not reintroduce the
+live555 fork/FIFO architecture.
 
 ## Build Commands
 
-**Requires the MIPS cross-compilation toolchain** (`mips-linux-uclibc-gnu-` prefix). Cannot be built natively on macOS/x86.
+**Requires the MIPS cross-compilation toolchain** (`mips-linux-uclibc-gnu-`
+prefix). Cannot be built natively on macOS/x86.
 
 ```bash
-make          # Build the t20-rtspd binary (auto-generates version.h from git)
-make clean    # Remove object files, binary, and version.h
+./build.sh      # Docker build (debian:bookworm, linux/amd64): toolchain + ffmpeg + mbedtls + make
+make            # Only if toolchain and vendored libs/ + include/ are present
+make clean      # Remove object files, binary, and version.h
 ```
 
-Docker-based build (recommended):
-```bash
-docker run --rm -ti -v $(pwd):/root/ debian
-# Inside container:
-mkdir /build && cd /build
-apt-get update && apt-get install -y p7zip wget git build-essential libcurl4-openssl-dev libssl-dev nlohmann-json3-dev
-wget https://github.com/Dafang-Hacks/Ingenic-T10_20/raw/master/resource/toolchain/mips-gcc472-glibc216-64bit-r2.3.3.7z
-p7zip -d mips-gcc472-glibc216-64bit-r2.3.3.7z
-export PATH=/build/mips-gcc472-glibc216-64bit/bin/:$PATH
-cd ~ && make
-```
+`version.h` is generated from the git commit hash at build time.
 
 ## Architecture
 
-### Process Model (fork-based)
+Single process, several threads:
 
-`on_demand_rtsp_server.cpp:main()` forks into two processes connected by a FIFO (`/tmp/h264_fifo`):
+| Thread | File | Role |
+|--------|------|------|
+| main | `main.cpp` | Entry point, config, init order, H264 capture loop → `mkv_recorder_write_frame` |
+| autonight | `imp-common.c` (`sample_soft_photosensitive_thread`) | ISP exposure EMA → day/night switch, IR-cut + IR LED GPIO, `apply_night_encoding()` |
+| MKV rotation | `mkv_recorder.c` | Chunk rotation at IDR boundaries, SPS/PPS caching, disk threshold guard |
+| audio | `audio_capture.cpp` | IMP audio in → G.711A → `mkv_recorder_write_audio_frame` |
+| upload | `file_uploader.c` | Scans output dir, uploads 1 MB chunks via `https_post_chunk`, adaptive/static pacing |
+| snapshot HTTP | `http_server.c` | `GET /snapshot` (JPEG via `sample_do_get_jpeg_snap`), `GET /status` |
+| grafana | `grafana_push.c` | Periodic metrics push (InfluxDB line protocol) |
 
-- **Parent process**: Capture loop — initializes the IMP SDK, encodes H.264 frames, and writes them to the FIFO
-- **Child process**: RTSP server — live555 event loop serving the stream at `rtsp://<ip>:554/unicast`
+Support files: `imp-common.c` (IMP SDK init/teardown, encoder setup, INI
+config parser), `ini.c` (inih), `https_client.c` (mbedtls HTTPS client,
+`adaptive_rate_t`).
 
-### Source File Roles
+## IMP SDK Pipeline
 
-| File | Role |
-|------|------|
-| `on_demand_rtsp_server.cpp` | Entry point, fork, RTSP server setup (live555) |
-| `capture_and_encoding.cpp` | IMP SDK init, H.264 encoding loop, OSD rendering, night mode thread |
-| `imp-common.c` | Low-level IMP SDK wrapper (ISP, framesource, encoder, OSD init/exit) |
-| `pwm.c` | `/dev/pwm` kernel driver interface for IR LED control |
-| `ini.c` | INI config file parser |
+Sensor → FrameSource (chn 0/1) → H.264 Encoder (CBR/VBR/Smart/FixQP)
+→ main loop → MKV recorder (+ optional audio muxing) and JPEG encoder (chn 2,
+snapshots on demand).
 
-### IMP SDK Pipeline
+Undocumented SDK call `IMP_Encoder_SetPoolSize()` raises the encoder pool for
+64 MB T20L devices.
 
-Sensor → FrameSource → [OSD (optional)] → H.264 Encoder → FIFO → live555 RTSP
+## Runtime Configuration
 
-### Compile-Time Feature Flags
-
-Defined/undefined in `capture_and_encoding.cpp`:
-- `ENABLED_OSD` — on-screen timestamp overlay using bitmap fonts from `bgramapinfo.h`
-- `NIGHTMODE_SWITCH` — automatic IR LED and IR-cut filter control via photosensitive detection thread
-- `SUPPORT_RGB555LE` — alternative OSD color format (defined in `imp-common.h`)
-
-### Sensor Selection
-
-Set via `#define SENSOR_*` in `imp-common.h`. Default is `SENSOR_JXF23` (1920x1080). Each sensor define sets name, I2C address, resolution, and channel configuration.
-
-### Runtime Configuration
-
-`exampleconf.ini` — parsed at startup to configure encoding parameters:
-- `ENCODING_TYPE`: 0=FixQP, 1=CBR, 2=VBR, 3=Smart
-- `WIDTH`, `HEIGHT`: stream resolution
-- `RATENUM`/`RATEDEN`: frame rate (FPS = RATENUM/RATEDEN)
-- `BITRATE`, `MAXQP`, `MINQP`: rate control
-- `PROFILE`: 0=Baseline, 1=Main, 2=High
-
-### Undocumented SDK Calls
-
-`capture_and_encoding.cpp` uses reverse-engineered calls `IMP_OSD_SetPoolSize()` and `IMP_Encoder_SetPoolSize()` to increase memory pools for 64MB T20L devices.
+`/system/sdcard/config/donekamera.conf`, fallback `/system/sdcard/config/test.ini`.
+Parsed by the handler in `imp-common.c` (`app_config_parse`), defaults set in
+the same function. Unknown keys return 1 (ignored) — other daemons share the
+file (`[telemetry]` belongs to the external client daemon). Camera name comes
+from `/system/sdcard/config/cameraname` (legacy: `/system/sdcard/cameraname`)
+and is sanitized to `[A-Za-z0-9_-]` because it is interpolated into a
+`system()` mDNS command — keep that sanitization.
 
 ## Key Constraints
 
-- Cross-compiled for MIPS32r2 with uclibc — all libraries in `lib/` are pre-compiled for this target
-- Live555 headers in `include/live555/`, IMP SDK headers in `include/imp_sys/`
-- C files compiled with gcc, C++ files with g++ (mixed C/C++ project, `extern "C"` blocks used)
+- Cross-compiled with gcc 4.7.2 / uclibc — no modern C/C++ features; C99/gnu99
+- Vendored prebuilt libs in `lib/` (ffmpeg static, mbedtls static, IMP uclibc
+  .so); headers in `include/`; ffmpeg and mbedtls are rebuilt from pinned
+  sources by `build_docker.sh` (sha256-verified downloads)
+- Do not link `libaudioProcess.so` — IMP_AI_*/IMP_AENC_* symbols come from
+  libimp.so (see note in Makefile)
 - Output binary is stripped (`$(STRIP) -s`)
+- Sensor selected via `#define SENSOR_*` in `imp-common.h` (default JXF23
+  1920x1080)
