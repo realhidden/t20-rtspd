@@ -8,7 +8,6 @@
 #define __SAMPLE_COMMON_H__
 
 #include <imp/imp_common.h>
-#include <imp/imp_osd.h>
 #include <imp/imp_framesource.h>
 #include <imp/imp_isp.h>
 #include <unistd.h>
@@ -157,32 +156,17 @@ extern "C"
 #define SENSOR_WIDTH_SECOND		640
 #define SENSOR_HEIGHT_SECOND		360
 
-#define NR_FRAMES_TO_SAVE		1000
-#define STREAM_BUFFER_SIZE		(1 * 1024 * 1024)
-
 #define ENC_H264_CHANNEL		0
 #define ENC_JPEG_CHANNEL		2
 
-#define STREAM_FILE_PATH_PREFIX		"/tmp"
 #define SNAP_FILE_PATH_PREFIX		"/tmp"
 
-#define OSD_REGION_WIDTH		16
-#define OSD_REGION_HEIGHT		34
-#define OSD_REGION_WIDTH_SEC		8
-#define OSD_REGION_HEIGHT_SEC   	18
-
-
-#define SLEEP_TIME			1
-
 #define FS_CHN_NUM			2  //MIN 1,MAX 2
-#define IVS_CHN_ID          1
 
 #define CH0_INDEX  0
 #define CH1_INDEX  1
 #define CHN_ENABLE 1
 #define CHN_DISABLE 0
-
-/*#define SUPPORT_RGB555LE*/
 
 typedef struct{
 	/* encoding settings (existing) */
@@ -203,9 +187,6 @@ typedef struct{
 	char recording_output_dir[256];
 	int recording_chunk_duration;
 	int recording_disk_threshold;
-	/* rtsp settings */
-	int rtsp_enabled;
-	int rtsp_port;
 	/* grafana metrics push settings */
 	int grafana_enabled;
 	char grafana_push_url[512];
@@ -269,34 +250,15 @@ int sample_system_exit();
 int sample_framesource_streamon();
 int sample_framesource_streamoff();
 
-int sample_framesource_ext_hsv_streamon();
-int sample_framesource_ext_hsv_streamoff();
-
-int sample_framesource_ext_bgra_streamon();
-int sample_framesource_ext_bgra_streamoff();
-
 int sample_framesource_init();
 int sample_framesource_exit();
-
-int sample_framesource_ext_hsv_init();
-int sample_framesource_ext_hsv_exit();
-
-int sample_framesource_ext_bgra_init();
-int sample_framesource_ext_bgra_exit();
 
 void sample_encoder_set_config(app_config_t *config);
 int sample_encoder_init();
 int sample_jpeg_init();
 int sample_encoder_exit(void);
 
-IMPRgnHandle *sample_osd_init(int grpNum);
-int sample_osd_exit(IMPRgnHandle *prHandle,int grpNum);
-
-int sample_do_get_h264_stream(int nr_frames);
-int sample_get_h264_stream();
 int sample_do_get_jpeg_snap(void);
-int sample_get_jpeg_snap();
-void *sample_soft_photosensitive_ctrl(void *p);
 void *sample_soft_photosensitive_thread(void *p);
 
 #ifdef __cplusplus

@@ -18,6 +18,55 @@
 #define MAX_FILES 64
 #define UPLOAD_CHUNK_BYTES (1024 * 1024) /* 1MB upload chunks */
 
+/* Rate limiting: probe the first PROBE_BYTES at full speed, measure raw
+ * throughput, then pace each subsequent chunk to target_pct% of the
+ * EMA-smoothed capacity (capped at rate_limit_kbps when set). */
+#define PROBE_BYTES (512 * 1024)
+#define EMA_ALPHA_NUM 3
+#define EMA_ALPHA_DEN 10
+#define MIN_RATE_KBPS 10
+
+static long long now_us(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+}
+
+/* Update adaptive rate from a probe measurement. Returns the new effective
+ * rate limit in KB/s. */
+static int adaptive_rate_update(adaptive_rate_t *ar, long probed_bytes, long long probe_us)
+{
+	long long raw_bps = probe_us > 0 ? (probed_bytes * 1000000LL) / probe_us : 0;
+
+	if (!ar->initialized) {
+		ar->ema_bps = raw_bps;
+		ar->initialized = 1;
+	} else {
+		ar->ema_bps = (EMA_ALPHA_NUM * raw_bps +
+				(EMA_ALPHA_DEN - EMA_ALPHA_NUM) * ar->ema_bps) / EMA_ALPHA_DEN;
+	}
+
+	int rate = (int)((ar->ema_bps * ar->target_pct) / 100 / 1024);
+	if (ar->max_rate_kbps > 0 && rate > ar->max_rate_kbps)
+		rate = ar->max_rate_kbps;
+	if (rate < MIN_RATE_KBPS)
+		rate = MIN_RATE_KBPS;
+	ar->current_rate_kbps = rate;
+	return rate;
+}
+
+/* Sleep so a chunk of `bytes` takes rate_kbps end-to-end. elapsed_us is the
+ * time the chunk already took (upload + response). */
+static void pace_chunk(long bytes, long long elapsed_us, int rate_kbps)
+{
+	if (rate_kbps <= 0 || bytes <= 0)
+		return;
+	long long expected_us = (bytes * 1000000LL) / ((long long)rate_kbps * 1024);
+	if (elapsed_us < expected_us)
+		usleep((unsigned int)(expected_us - elapsed_us));
+}
+
 static file_uploader_config_t g_config;
 static pthread_t g_thread;
 static volatile int g_running = 0;
@@ -231,6 +280,9 @@ static void *file_uploader_thread(void *arg)
 
 			int upload_ok = 1;
 			int chunk_idx;
+			long probed_bytes = 0;
+			long long probe_us = 0;
+			int probe_done = 0;
 			for (chunk_idx = 0; chunk_idx < total_chunks && g_running; chunk_idx++) {
 				/* Build chunk headers */
 				const char *headers[10];
@@ -257,9 +309,15 @@ static void *file_uploader_thread(void *arg)
 				headers[h_idx] = NULL;
 
 				long offset = (long)chunk_idx * UPLOAD_CHUNK_BYTES;
+				long chunk_len = UPLOAD_CHUNK_BYTES;
+				if (offset + chunk_len > file_size)
+					chunk_len = file_size - offset;
 				int http_status = 0;
+
+				long long t0 = now_us();
 				int ret = https_post_chunk(g_config.upload_url, headers,
 						filepath, offset, UPLOAD_CHUNK_BYTES, &http_status);
+				long long chunk_us = now_us() - t0;
 
 				if (ret != 0) {
 					printf("[%s] Chunk %d/%d FAILED for %s (http=%d)\n",
@@ -267,8 +325,39 @@ static void *file_uploader_thread(void *arg)
 					upload_ok = 0;
 					break;
 				}
-				/* Small delay between chunks to let server respond */
-				usleep(100000);
+
+				if (g_config.adaptive_rate) {
+					if (!probe_done) {
+						/* Probe phase: measure throughput. On re-probe
+						 * (state from earlier uploads) pace at 2x the
+						 * current rate so the link isn't saturated. */
+						probed_bytes += chunk_len;
+						probe_us += chunk_us;
+						if (g_adaptive_rate.initialized) {
+							int probe_rate = g_adaptive_rate.current_rate_kbps * 2;
+							if (g_adaptive_rate.max_rate_kbps > 0 &&
+									probe_rate > g_adaptive_rate.max_rate_kbps)
+								probe_rate = g_adaptive_rate.max_rate_kbps;
+							pace_chunk(chunk_len, chunk_us, probe_rate);
+						}
+						if (probed_bytes >= PROBE_BYTES || chunk_idx + 1 == total_chunks) {
+							int rate = adaptive_rate_update(&g_adaptive_rate,
+									probed_bytes, probe_us);
+							probe_done = 1;
+							printf("[%s] Adaptive: probe=%ldKB in %lldms ema=%lldKB/s -> rate=%dKB/s\n",
+									TAG, probed_bytes / 1024, probe_us / 1000,
+									g_adaptive_rate.ema_bps / 1024, rate);
+						}
+					} else {
+						pace_chunk(chunk_len, chunk_us,
+								g_adaptive_rate.current_rate_kbps);
+					}
+				} else if (g_config.rate_limit_kbps > 0) {
+					pace_chunk(chunk_len, chunk_us, g_config.rate_limit_kbps);
+				} else {
+					/* Small delay between chunks to let server respond */
+					usleep(100000);
+				}
 			}
 
 			if (upload_ok) {
