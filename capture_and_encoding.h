@@ -8,7 +8,6 @@
    We avoid including it here to prevent conflicts — cast from void* in .cpp */
 int capture_and_encoding(void *config);
 int destory(void);
-int save_stream_to_fd(int fd, IMPEncoderStream *stream);
 int start_encoder_receiving(int chn);
 
 #endif

@@ -35,16 +35,6 @@ void https_client_cleanup(void);
 int https_post(const char *url, const char **headers,
                const char *body, int body_len, int *http_status);
 
-/* Upload a file via HTTPS POST, streaming from disk with optional rate limit.
- * filepath: path to the file to upload
- * rate_limit_kbps: KB/s limit (0 = unlimited), used when adaptive is NULL
- * adaptive: if non-NULL, use adaptive rate limiting (rate_limit_kbps is ignored)
- * Returns 0 on success (HTTP 2xx), -1 on error. */
-int https_post_file(const char *url, const char **headers,
-                    const char *filepath, int rate_limit_kbps,
-                    adaptive_rate_t *adaptive,
-                    int *http_status);
-
 /* Upload a chunk (portion) of a file via HTTPS POST.
  * filepath: path to the file
  * offset: byte offset to start reading from

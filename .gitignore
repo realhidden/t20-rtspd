@@ -3,6 +3,12 @@ version.h
 t20-rtspd
 .idea
 
-# Build artifacts
+# Local tooling / editor state
+.claude/
+.cache/
 .wget-hsts
-*.a
+.bash_history
+
+# Downloaded build sources (fetched pinned by build_docker.sh)
+mbedtls-*.tar.*
+ffmpeg-*.tar.*
