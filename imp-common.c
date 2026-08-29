@@ -357,6 +357,8 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->http_enabled = atoi(value);
 	} else if (MATCH("http", "PORT")){
 		pconfig->http_port = atoi(value);
+	} else if (MATCH("smart", "GOP_SEC")){
+		pconfig->SMART_GOP_SEC = atoi(value);
 	} else if (MATCH("smart", "MAXQP")){
 		pconfig->SMART_MAXQP = atoi(value);
 	} else if (MATCH("smart", "MINQP")){
@@ -427,6 +429,7 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->http_enabled = 0;
 	config->http_port = 8080;
 	/* Smart mode defaults — optimized for indoor cameras */
+	config->SMART_GOP_SEC = 2;
 	config->SMART_MAXQP = 40;
 	config->SMART_MINQP = 0;
 	config->SMART_STATIC_TIME = 2;
@@ -476,6 +479,8 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 			config->audio_enabled, config->audio_dev_id, config->audio_sample_rate);
 	printf("[config] HTTP: enabled=%d port=%d\n",
 			config->http_enabled, config->http_port);
+	printf("[config] Smart GOP: %ds (maxGop will scale with fps)\n",
+			config->SMART_GOP_SEC);
 
 	return 0;
 }
@@ -545,7 +550,16 @@ int sample_encoder_init()
 			rc_attr = &channel_attr.rcAttr;
             rc_attr->outFrmRate.frmRateNum = imp_chn_attr_tmp->outFrmRateNum;
             rc_attr->outFrmRate.frmRateDen = imp_chn_attr_tmp->outFrmRateDen;
-            rc_attr->maxGop = 2 * rc_attr->outFrmRate.frmRateNum / rc_attr->outFrmRate.frmRateDen;
+            {
+                /* GOP = I-frame interval. Longer GOPs cut I-frame cost and
+                 * stretch the smart-skip cycle on static scenes (1 encoded
+                 * frame per GOP); 2s is the conservative legacy default. */
+                int gop_sec = config.SMART_GOP_SEC;
+                if (gop_sec < 1) gop_sec = 2;
+                if (gop_sec > 10) gop_sec = 10;
+                rc_attr->maxGop = gop_sec * rc_attr->outFrmRate.frmRateNum
+						/ rc_attr->outFrmRate.frmRateDen;
+            }
             if (S_RC_METHOD == ENC_RC_MODE_CBR) {
 				printf("CBR MODE SELECTED \n");
                 rc_attr->attrRcMode.rcMode = ENC_RC_MODE_CBR;

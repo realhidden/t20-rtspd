@@ -373,6 +373,21 @@ void grafana_push_shutdown(void)
 
 	printf("[%s] Shutting down\n", TAG);
 	g_running = 0;
-	pthread_join(g_thread, NULL);
+	/* Bounded wait: a thread stuck in blocking network IO must not wedge
+	 * the whole shutdown (observed live: join blocked >8 minutes when the
+	 * keep-alive socket stalled mid-upload). Give it a grace period, then
+	 * detach — the thread dies with the process either way. */
+	int waited_s = 0;
+	while (waited_s < 15) {
+		if (pthread_kill(g_thread, 0) != 0)
+			break;	/* thread is gone */
+		sleep(1);
+		waited_s++;
+	}
+	if (waited_s >= 15) {
+		printf("[%s] thread did not exit in 15s, detaching\n", TAG);
+		pthread_detach(g_thread);
+	}
+
 	printf("[%s] Shutdown complete\n", TAG);
 }

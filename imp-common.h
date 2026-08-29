@@ -209,6 +209,9 @@ typedef struct{
 	int http_enabled;
 	int http_port;           /* default 8080 */
 	/* smart encoding mode parameters */
+	int SMART_GOP_SEC;	/* GOP length in seconds (I-frame interval); also the
+				 * smart-skip cycle on static scenes (1 frame per GOP).
+				 * 0 = legacy 2s */
 	int SMART_MAXQP;
 	int SMART_MINQP;
 	int SMART_STATIC_TIME;
