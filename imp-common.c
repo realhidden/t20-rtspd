@@ -860,6 +860,7 @@ void *sample_soft_photosensitive_thread(void *p)
 	IMPISPRunningMode pmode;
 	int ir_leds_active = 0;
 	int last_night_state = -1;
+	int isp_night = -1;	/* hysteresis-protected mode: 1=night 0=day, -1=unknown */
 
 	int night_thresh = cfg->AUTONIGHT_NIGHT_THRESH;
 	int day_thresh = cfg->AUTONIGHT_DAY_THRESH;
@@ -900,6 +901,8 @@ void *sample_soft_photosensitive_thread(void *p)
 		}
 
 		IMP_ISP_Tuning_GetISPRunningMode(&pmode);
+		if (isp_night < 0)
+			isp_night = (pmode == IMPISP_RUNNING_MODE_NIGHT) ? 1 : 0;
 
 		/* Night/day ISP mode switching */
 		if (avgExp > night_thresh) {
@@ -909,6 +912,7 @@ void *sample_soft_photosensitive_thread(void *p)
 				evDebugCount = 10;
 				IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_NIGHT);
 				sample_set_IRCUT(1);
+				isp_night = 1;
 			}
 		} else if (avgExp < day_thresh) {
 			if (pmode != IMPISP_RUNNING_MODE_DAY) {
@@ -917,25 +921,31 @@ void *sample_soft_photosensitive_thread(void *p)
 				evDebugCount = 10;
 				IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_DAY);
 				sample_set_IRCUT(0);
+				isp_night = 0;
 			}
 		}
 
-		/* Signal t20rtspd encoding adjustment on state change */
+		/* Encoding follows the hysteresis-protected ISP state. Driving it
+		 * from the raw threshold flaps around night_thresh and reconfigures
+		 * the encoder several times per minute at dusk/dawn. */
 		{
-			int is_night = (avgExp > night_thresh) ? 1 : 0;
-			if (is_night != last_night_state) {
-				g_night_mode = is_night;
-				apply_night_encoding(is_night);
+			if (isp_night != last_night_state) {
+				g_night_mode = isp_night;
+				apply_night_encoding(isp_night);
 				printf("[%s] Night mode %s (avgExp=%d)\n",
 						get_curr_timestr((char *) &tmstr),
-						is_night ? "ON" : "OFF", avgExp);
-				last_night_state = is_night;
+						isp_night ? "ON" : "OFF", avgExp);
+				last_night_state = isp_night;
 			}
 		}
 
-		/* IR LED control */
+		/* IR LED control with hysteresis: turn on above ir_led_thresh, off
+		 * only below 3/4 of it. A single threshold oscillates — the IR
+		 * light itself lowers exposure below the threshold again. */
 		{
-			int want_on = (avgExp > ir_led_thresh) ? 1 : 0;
+			int want_on = ir_leds_active
+				? (avgExp > ir_led_thresh * 3 / 4)
+				: (avgExp > ir_led_thresh);
 			if (ir_led_off) want_on = !want_on;
 
 			if (want_on && !ir_leds_active) {

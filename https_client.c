@@ -27,6 +27,8 @@ static mbedtls_ssl_config g_ssl_conf;
 static int g_initialized = 0;
 static int g_has_cacert = 0;
 
+static void ka_drop(void);
+
 int https_client_init(void)
 {
 	int ret;
@@ -93,6 +95,7 @@ void https_client_cleanup(void)
 	if (!g_initialized)
 		return;
 
+	ka_drop();
 	mbedtls_ssl_config_free(&g_ssl_conf);
 	mbedtls_x509_crt_free(&g_cacert);
 	mbedtls_ctr_drbg_free(&g_ctr_drbg);
@@ -308,22 +311,219 @@ void adaptive_rate_init(adaptive_rate_t *ar, int target_pct, int max_rate_kbps)
 	ar->max_rate_kbps = max_rate_kbps;
 }
 
+/* Case-insensitive substring search (strcasestr is GNU-only). */
+static char *ci_strstr(const char *haystack, const char *needle)
+{
+	size_t nl = strlen(needle);
+	if (nl == 0) return (char *)haystack;
+	for (; *haystack; haystack++) {
+		size_t i;
+		for (i = 0; i < nl; i++) {
+			char a = haystack[i], b = needle[i];
+			if (a >= 'A' && a <= 'Z') a += 32;
+			if (b >= 'A' && b <= 'Z') b += 32;
+			if (a != b) break;
+		}
+		if (i == nl) return (char *)haystack;
+	}
+	return NULL;
+}
+
 /* File-to-network stream buffer size for chunked uploads */
 #define UPLOAD_CHUNK_SIZE 8192
+
+/* --- Persistent TLS connection for chunk uploads ---
+ * Consecutive chunks of a file go to the same host ~1s apart; reusing one
+ * TLS connection saves a full handshake (~0.5-1s of CPU on this SoC) per
+ * 1MB chunk — the dominant load spike during uploads. Server-side idle
+ * timeouts are handled by the retry-once-on-stale logic in the caller. */
+static mbedtls_net_context g_ka_fd;
+static mbedtls_ssl_context g_ka_ssl;
+static int g_ka_valid = 0;
+static char g_ka_host[256];
+static char g_ka_port[8];
+
+static void ka_drop(void)
+{
+	if (!g_ka_valid)
+		return;
+	mbedtls_ssl_close_notify(&g_ka_ssl);
+	mbedtls_ssl_free(&g_ka_ssl);
+	mbedtls_net_free(&g_ka_fd);
+	g_ka_valid = 0;
+}
+
+/* Establish the persistent connection (must not already be valid). */
+static int ka_connect(const char *host, const char *port)
+{
+	int ret;
+
+	mbedtls_net_init(&g_ka_fd);
+	mbedtls_ssl_init(&g_ka_ssl);
+
+	ret = mbedtls_net_connect(&g_ka_fd, host, port, MBEDTLS_NET_PROTO_TCP);
+	if (ret != 0) {
+		printf("[%s] TCP connect to %s:%s failed: -0x%04x\n", TAG, host, port, -ret);
+		goto fail;
+	}
+
+	ret = mbedtls_ssl_setup(&g_ka_ssl, &g_ssl_conf);
+	if (ret != 0) {
+		printf("[%s] ssl_setup failed: -0x%04x\n", TAG, -ret);
+		goto fail;
+	}
+
+	mbedtls_ssl_set_hostname(&g_ka_ssl, host);
+	mbedtls_ssl_set_bio(&g_ka_ssl, &g_ka_fd,
+			mbedtls_net_send, NULL, mbedtls_net_recv_timeout);
+
+	while ((ret = mbedtls_ssl_handshake(&g_ka_ssl)) != 0) {
+		if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+			printf("[%s] TLS handshake failed: -0x%04x\n", TAG, -ret);
+			goto fail;
+		}
+	}
+
+	g_ka_valid = 1;
+	strncpy(g_ka_host, host, sizeof(g_ka_host) - 1);
+	g_ka_host[sizeof(g_ka_host) - 1] = '\0';
+	strncpy(g_ka_port, port, sizeof(g_ka_port) - 1);
+	g_ka_port[sizeof(g_ka_port) - 1] = '\0';
+	return 0;
+
+fail:
+	mbedtls_ssl_free(&g_ka_ssl);
+	mbedtls_net_free(&g_ka_fd);
+	return -1;
+}
+
+/* Send one chunk request over the persistent connection and read the full
+ * response (needed before the connection may be reused). Sets *http_status
+ * and *conn_dead (server closed / unusable). Returns 0 on I/O success
+ * (regardless of status code), -1 on connection error. */
+static int ka_send_chunk(const char *path, const char *host, const char **headers,
+		FILE *fp, long chunk_size, int *http_status, int *conn_dead)
+{
+	char request[2048];
+	char response[RESPONSE_BUF_SIZE];
+	int req_len, ret, i;
+
+	*conn_dead = 1;  /* assume unusable until proven otherwise */
+
+	req_len = snprintf(request, sizeof(request),
+		"POST %s HTTP/1.1\r\n"
+		"Host: %s\r\n"
+		"Content-Length: %ld\r\n"
+		"Connection: keep-alive\r\n",
+		path, host, chunk_size);
+
+	if (headers) {
+		for (i = 0; headers[i] != NULL; i++) {
+			req_len += snprintf(request + req_len, sizeof(request) - req_len,
+				"%s\r\n", headers[i]);
+		}
+	}
+	req_len += snprintf(request + req_len, sizeof(request) - req_len, "\r\n");
+
+	/* Send headers */
+	ret = mbedtls_ssl_write(&g_ka_ssl, (const unsigned char *)request, req_len);
+	if (ret < 0) {
+		printf("[%s] ssl_write (headers) failed: -0x%04x\n", TAG, -ret);
+		return -1;
+	}
+
+	/* Stream chunk from file */
+	{
+		unsigned char buf[UPLOAD_CHUNK_SIZE];
+		long bytes_sent = 0;
+
+		while (bytes_sent < chunk_size) {
+			size_t to_read = chunk_size - bytes_sent;
+			if (to_read > UPLOAD_CHUNK_SIZE)
+				to_read = UPLOAD_CHUNK_SIZE;
+
+			size_t n = fread(buf, 1, to_read, fp);
+			if (n == 0) break;
+
+			size_t written = 0;
+			while (written < n) {
+				ret = mbedtls_ssl_write(&g_ka_ssl, buf + written, n - written);
+				if (ret < 0) {
+					printf("[%s] ssl_write (chunk) failed at %ld/%ld: -0x%04x\n",
+							TAG, bytes_sent, chunk_size, -ret);
+					return -1;
+				}
+				written += ret;
+			}
+			bytes_sent += n;
+		}
+	}
+
+	/* Read the complete response so the connection can be reused */
+	{
+		int total = 0;
+		int header_end = -1;
+		int content_len = -1;
+		int close_hdr = 0;
+
+		memset(response, 0, sizeof(response));
+		while (total < (int)sizeof(response) - 1) {
+			ret = mbedtls_ssl_read(&g_ka_ssl,
+					(unsigned char *)response + total, sizeof(response) - 1 - total);
+			if (ret == 0)
+				break;	/* peer closed */
+			if (ret < 0) {
+				if (total > 0 && header_end >= 0)
+					break;  /* got headers; body truncated is fine for us */
+				printf("[%s] ssl_read failed: -0x%04x\n", TAG, -ret);
+				return -1;
+			}
+			total += ret;
+			response[total] = '\0';
+
+			if (header_end < 0) {
+				char *he = strstr(response, "\r\n\r\n");
+				if (he) {
+					header_end = (he + 4) - response;
+					/* Content-Length and Connection: close from headers */
+					char *cl = ci_strstr(response, "content-length:");
+					if (cl)
+						content_len = atoi(cl + 15);
+					char *cn = ci_strstr(response, "connection:");
+					if (cn && strncasecmp(cn + 11, " close", 6) == 0)
+						close_hdr = 1;
+				}
+			}
+			if (header_end >= 0 && content_len >= 0 &&
+					total >= header_end + content_len)
+				break;  /* full response received */
+			if (header_end >= 0 && content_len < 0 && ret == 0)
+				break;
+		}
+
+		/* Parse status from the first line */
+		{
+			const char *sp = response;
+			while (*sp && *sp != ' ' && sp < response + total)
+				sp++;
+			if (*sp == ' ')
+				*http_status = atoi(sp + 1);
+		}
+
+		if (!close_hdr && header_end >= 0)
+			*conn_dead = 0;  /* connection stays usable */
+	}
+
+	return 0;
+}
 
 int https_post_chunk(const char *url, const char **headers,
                      const char *filepath, long offset, long chunk_size,
                      int *http_status)
 {
-	int ret;
-	mbedtls_net_context server_fd;
-	mbedtls_ssl_context ssl;
 	char host[256], port[8], path[512];
-	char request[2048];
-	char response[RESPONSE_BUF_SIZE];
-	int req_len;
 	struct stat st;
-	FILE *fp = NULL;
+	int attempt;
 
 	if (!g_initialized) {
 		printf("[%s] Not initialized\n", TAG);
@@ -350,135 +550,51 @@ int https_post_chunk(const char *url, const char **headers,
 		return -1;
 	}
 
-	/* Open file and seek to offset */
-	fp = fopen(filepath, "rb");
-	if (!fp) {
-		printf("[%s] fopen(%s) failed\n", TAG, filepath);
-		return -1;
-	}
-	if (offset > 0 && fseek(fp, offset, SEEK_SET) != 0) {
-		printf("[%s] fseek(%ld) failed\n", TAG, offset);
+	for (attempt = 0; attempt < 2; attempt++) {
+		FILE *fp = fopen(filepath, "rb");
+		if (!fp) {
+			printf("[%s] fopen(%s) failed\n", TAG, filepath);
+			return -1;
+		}
+		if (fseek(fp, offset, SEEK_SET) != 0) {
+			printf("[%s] fseek(%ld) failed\n", TAG, offset);
+			fclose(fp);
+			return -1;
+		}
+
+		int cached = g_ka_valid && strcmp(g_ka_host, host) == 0
+			&& strcmp(g_ka_port, port) == 0;
+		if (g_ka_valid && !cached)
+			ka_drop();
+		if (!cached && ka_connect(host, port) < 0) {
+			fclose(fp);
+			return -1;	/* fresh connection failed — network trouble */
+		}
+
+		int conn_dead = 1;
+		int ret = ka_send_chunk(path, host, headers, fp, chunk_size,
+				http_status, &conn_dead);
 		fclose(fp);
-		return -1;
-	}
 
-	mbedtls_net_init(&server_fd);
-	mbedtls_ssl_init(&ssl);
+		if (ret == 0) {
+			if (conn_dead)
+				ka_drop();
+			if (*http_status >= 200 && *http_status < 300)
+				return 0;
+			printf("[%s] HTTP %d from %s%s\n", TAG, *http_status, host, path);
+			return -1;
+		}
 
-	/* Connect TCP */
-	ret = mbedtls_net_connect(&server_fd, host, port, MBEDTLS_NET_PROTO_TCP);
-	if (ret != 0) {
-		printf("[%s] TCP connect to %s:%s failed: -0x%04x\n", TAG, host, port, -ret);
-		goto cleanup_chunk;
-	}
-
-	/* Setup TLS */
-	ret = mbedtls_ssl_setup(&ssl, &g_ssl_conf);
-	if (ret != 0) {
-		printf("[%s] ssl_setup failed: -0x%04x\n", TAG, -ret);
-		goto cleanup_chunk;
-	}
-
-	mbedtls_ssl_set_hostname(&ssl, host);
-	mbedtls_ssl_set_bio(&ssl, &server_fd,
-			mbedtls_net_send, NULL, mbedtls_net_recv_timeout);
-
-	/* TLS handshake */
-	while ((ret = mbedtls_ssl_handshake(&ssl)) != 0) {
-		if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
-			printf("[%s] TLS handshake failed: -0x%04x\n", TAG, -ret);
-			goto cleanup_chunk;
+		/* Connection-level failure. A stale cached connection is expected
+		 * (server-side idle timeouts); drop it and retry once on a fresh
+		 * one. A failure on an already-fresh connection means the network
+		 * is down — give up. Re-sent chunks are deduplicated server-side. */
+		ka_drop();
+		if (!cached) {
+			*http_status = 0;
+			return -1;
 		}
 	}
 
-	/* Build HTTP request */
-	req_len = snprintf(request, sizeof(request),
-		"POST %s HTTP/1.1\r\n"
-		"Host: %s\r\n"
-		"Content-Length: %ld\r\n"
-		"Connection: close\r\n",
-		path, host, chunk_size);
-
-	/* Append custom headers */
-	if (headers) {
-		int i;
-		for (i = 0; headers[i] != NULL; i++) {
-			req_len += snprintf(request + req_len, sizeof(request) - req_len,
-				"%s\r\n", headers[i]);
-		}
-	}
-	req_len += snprintf(request + req_len, sizeof(request) - req_len, "\r\n");
-
-	/* Send headers */
-	ret = mbedtls_ssl_write(&ssl, (const unsigned char *)request, req_len);
-	if (ret < 0) {
-		printf("[%s] ssl_write (headers) failed: -0x%04x\n", TAG, -ret);
-		goto cleanup_chunk;
-	}
-
-	/* Stream chunk from file */
-	{
-		unsigned char buf[UPLOAD_CHUNK_SIZE];
-		long bytes_sent = 0;
-
-		while (bytes_sent < chunk_size) {
-			size_t to_read = chunk_size - bytes_sent;
-			if (to_read > UPLOAD_CHUNK_SIZE)
-				to_read = UPLOAD_CHUNK_SIZE;
-
-			size_t n = fread(buf, 1, to_read, fp);
-			if (n == 0) break;
-
-			size_t written = 0;
-			while (written < n) {
-				ret = mbedtls_ssl_write(&ssl, buf + written, n - written);
-				if (ret < 0) {
-					printf("[%s] ssl_write (chunk) failed at %ld/%ld: -0x%04x\n",
-							TAG, bytes_sent, chunk_size, -ret);
-					goto cleanup_chunk;
-				}
-				written += ret;
-			}
-			bytes_sent += n;
-		}
-	}
-
-	fclose(fp);
-	fp = NULL;
-
-	/* Read response */
-	memset(response, 0, sizeof(response));
-	ret = mbedtls_ssl_read(&ssl, (unsigned char *)response, sizeof(response) - 1);
-	if (ret < 0) {
-		printf("[%s] ssl_read failed: -0x%04x\n", TAG, -ret);
-		goto cleanup_chunk_net;
-	}
-
-	/* Parse HTTP status */
-	int status = 0;
-	const char *sp = response;
-	while (*sp && *sp != ' ' && sp < response + ret)
-		sp++;
-	if (*sp == ' ')
-		status = atoi(sp + 1);
-
-	if (http_status)
-		*http_status = status;
-
-	mbedtls_ssl_close_notify(&ssl);
-	mbedtls_ssl_free(&ssl);
-	mbedtls_net_free(&server_fd);
-
-	if (status >= 200 && status < 300)
-		return 0;
-
-	printf("[%s] HTTP %d from %s%s\n", TAG, status, host, path);
-	return -1;
-
-cleanup_chunk:
-	if (fp) fclose(fp);
-cleanup_chunk_net:
-	mbedtls_ssl_free(&ssl);
-	mbedtls_net_free(&server_fd);
 	return -1;
 }
