@@ -845,6 +845,16 @@ int sample_set_IRCUT(int enable)
 	close(fd1);
 	close(fd2);
 
+	/* Publish the state for telemetry — the client reports night_mode
+	 * from this file (1 = night / IR-cut released). */
+	{
+		FILE *f = fopen("/var/run/ircut", "w");
+		if (f) {
+			fputs(enable ? "1\n" : "0\n", f);
+			fclose(f);
+		}
+	}
+
 	return 0;
 }
 
