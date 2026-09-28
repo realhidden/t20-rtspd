@@ -422,6 +422,17 @@ int file_uploader_init(const file_uploader_config_t *config)
 		adaptive_rate_init(&g_adaptive_rate, 80, g_config.rate_limit_kbps);
 		printf("[%s] Adaptive rate: target=80%% cap=%dKB/s\n",
 				TAG, g_config.rate_limit_kbps);
+		/* Note: RATE_LIMIT_KBPS is in KB/s (kilobytes/sec) despite the
+		 * name — the pacing math divides by 1024, and the uploader log
+		 * prints "KB/s". */
+		if (g_config.rate_limit_kbps <= 0) {
+			printf("[%s] WARNING: ADAPTIVE_RATE is on with RATE_LIMIT_KBPS=0.\n", TAG);
+			printf("[%s] WARNING: this paces at 80%% of the camera's OWN measured\n", TAG);
+			printf("[%s] WARNING: throughput, i.e. ~80%% of everything the link can\n", TAG);
+			printf("[%s] WARNING: deliver, leaving nothing for anything else on the\n", TAG);
+			printf("[%s] WARNING: network. Set RATE_LIMIT_KBPS to a fixed KB/s cap\n", TAG);
+			printf("[%s] WARNING: to share the medium (e.g. 300).\n", TAG);
+		}
 	}
 
 	g_running = 1;

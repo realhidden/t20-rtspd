@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <time.h>
 
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/ssl.h>
@@ -343,6 +344,27 @@ static int g_ka_valid = 0;
 static char g_ka_host[256];
 static char g_ka_port[8];
 
+/* Monotonic clock in microseconds. */
+static long long ka_now_us(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+}
+
+/* When the persistent connection was last used. The uploader sleeps
+ * SCAN_INTERVAL_S between rounds, so a cached connection routinely sits idle
+ * far longer than any server-side keep-alive timeout. Holding it across that
+ * gap means the peer has already closed the socket while we keep the fd, and
+ * whatever the server sent before closing piles up unread in the receive
+ * buffer (observed live as a CLOSE_WAIT socket with ~180 KB of Recv-Q). */
+static long long g_ka_last_use_us = 0;
+
+/* Anything idle longer than this is presumed dead: drop it and reconnect
+ * rather than discover the close mid-chunk. Kept well under the 45 s scan
+ * interval in normal configs. */
+#define KA_IDLE_MAX_US (20 * 1000 * 1000)
+
 static void ka_drop(void)
 {
 	if (!g_ka_valid)
@@ -351,6 +373,16 @@ static void ka_drop(void)
 	mbedtls_ssl_free(&g_ka_ssl);
 	mbedtls_net_free(&g_ka_fd);
 	g_ka_valid = 0;
+	g_ka_last_use_us = 0;
+}
+
+/* True if the cached connection has been idle long enough that the peer has
+ * probably already dropped it. */
+static int ka_is_stale(void)
+{
+	if (!g_ka_valid)
+		return 1;
+	return (ka_now_us() - g_ka_last_use_us) > KA_IDLE_MAX_US;
 }
 
 /* Establish the persistent connection (must not already be valid). */
@@ -385,6 +417,7 @@ static int ka_connect(const char *host, const char *port)
 	}
 
 	g_ka_valid = 1;
+	g_ka_last_use_us = ka_now_us();
 	strncpy(g_ka_host, host, sizeof(g_ka_host) - 1);
 	g_ka_host[sizeof(g_ka_host) - 1] = '\0';
 	strncpy(g_ka_port, port, sizeof(g_ka_port) - 1);
@@ -465,18 +498,34 @@ static int ka_send_chunk(const char *path, const char *host, const char **header
 		int header_end = -1;
 		int content_len = -1;
 		int close_hdr = 0;
+		int complete = 0;	/* we know we consumed the whole response */
+		int truncated = 0;	/* bailed out mid-response: connection unusable */
 
 		memset(response, 0, sizeof(response));
 		while (total < (int)sizeof(response) - 1) {
 			ret = mbedtls_ssl_read(&g_ka_ssl,
 					(unsigned char *)response + total, sizeof(response) - 1 - total);
-			if (ret == 0)
-				break;	/* peer closed */
+			if (ret == 0) {
+				/* Peer closed: we landed exactly on the end of a
+				 * content-length body, or the server closed right
+				 * after its response. Either way nothing is left over. */
+				complete = (header_end >= 0);
+				break;
+			}
 			if (ret < 0) {
-				if (total > 0 && header_end >= 0)
-					break;  /* got headers; body truncated is fine for us */
-				printf("[%s] ssl_read failed: -0x%04x\n", TAG, -ret);
-				return -1;
+				/* Read error or timeout. Having parsed only headers we
+				 * cannot tell how much body is still queued, so the
+				 * connection must be dropped — otherwise the next
+				 * chunk reads the tail of *this* response and treats it
+				 * as its own status line, reporting success for a chunk
+				 * the server never fully processed. */
+				truncated = (total > 0);
+				if (truncated)
+					printf("[%s] response truncated at %d bytes, dropping conn\n",
+							TAG, total);
+				else
+					printf("[%s] ssl_read failed: -0x%04x\n", TAG, -ret);
+				break;
 			}
 			total += ret;
 			response[total] = '\0';
@@ -495,10 +544,10 @@ static int ka_send_chunk(const char *path, const char *host, const char **header
 				}
 			}
 			if (header_end >= 0 && content_len >= 0 &&
-					total >= header_end + content_len)
-				break;  /* full response received */
-			if (header_end >= 0 && content_len < 0 && ret == 0)
+					total >= header_end + content_len) {
+				complete = 1;	/* exact-length body fully consumed */
 				break;
+			}
 		}
 
 		/* Parse status from the first line */
@@ -510,7 +559,9 @@ static int ka_send_chunk(const char *path, const char *host, const char **header
 				*http_status = atoi(sp + 1);
 		}
 
-		if (!close_hdr && header_end >= 0)
+		/* Reuse is only safe when we consumed the response exactly and the
+		 * server did not ask to close. Everything else gets dropped. */
+		if (complete && !close_hdr && !truncated)
 			*conn_dead = 0;  /* connection stays usable */
 	}
 
@@ -562,6 +613,15 @@ int https_post_chunk(const char *url, const char **headers,
 			return -1;
 		}
 
+		/* Reuse the persistent connection only if the peer is plausibly
+		 * still holding it. Across a scan interval the server will have
+		 * timed it out and closed, so the cached fd would be CLOSE_WAIT
+		 * with unread data. */
+		if (g_ka_valid && ka_is_stale()) {
+			printf("[%s] cached conn idle too long, dropping\n", TAG);
+			ka_drop();
+		}
+
 		int cached = g_ka_valid && strcmp(g_ka_host, host) == 0
 			&& strcmp(g_ka_port, port) == 0;
 		if (g_ka_valid && !cached)
@@ -575,6 +635,7 @@ int https_post_chunk(const char *url, const char **headers,
 		int ret = ka_send_chunk(path, host, headers, fp, chunk_size,
 				http_status, &conn_dead);
 		fclose(fp);
+		g_ka_last_use_us = ka_now_us();
 
 		if (ret == 0) {
 			if (conn_dead)

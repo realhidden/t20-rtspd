@@ -402,6 +402,17 @@ static int handler(void* user, const char* section, const char* name, const char
 		 * treats a 0 return as a parse error (it stops/aborts and returns
 		 * the line number); returning 1 keeps the [telemetry] section —
 		 * which this daemon doesn't consume — from poisoning the parse. */
+		/* [telemetry] and [auth] are owned by the external client daemon
+		 * and share this file, so they are expected here — stay quiet.
+		 * Anything else means a key is sitting under the wrong section,
+		 * which is silently ignored and has bitten us before: a block of
+		 * [autonight] keys lost its section header and was parsed as
+		 * [night], so those thresholds never applied. Warn instead. */
+		if (strcmp(section, "telemetry") != 0 && strcmp(section, "auth") != 0) {
+			printf("[config] WARNING: ignoring unknown key '%s' in section [%s]\n",
+					name, section);
+			printf("[config] WARNING: (is its section header missing above this line?)\n");
+		}
 		return 1;
 	}
 	return 1;
@@ -481,6 +492,58 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 			config->http_enabled, config->http_port);
 	printf("[config] Smart GOP: %ds (maxGop will scale with fps)\n",
 			config->SMART_GOP_SEC);
+
+	/* Report the rate-control values that actually take effect. In SMART
+	 * mode [user] BITRATE is NOT used — maxBitRate comes from
+	 * [smart] MAX_BITRATE scaled to the frame size against a 1920x1080
+	 * reference, and qualityLvl sets a floor of
+	 * maxBitRate * quality[qualityLvl]. Printing the derived ceilings makes
+	 * a "why is this still 1.2 Mbps" question answerable from the log. */
+	{
+		int w = config->WIDTH ? config->WIDTH : 1920;
+		int h = config->HEIGHT ? config->HEIGHT : 1080;
+		double scale = (double)(w * h) / (1920.0 * 1080.0);
+		/* quality[level] from imp_encoder.h: {0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1} */
+		static const double quality[8] = {0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1};
+		int ql = config->SMART_QUALITY_LVL;
+		if (ql < 0) ql = 0;
+		if (ql > 7) ql = 7;
+
+		double smart_max = config->SMART_MAX_BITRATE * scale;
+		printf("[config] Smart RC: max_qp=%d min_qp=%d static_time=%d quality_lvl=%d\n",
+				config->SMART_MAXQP, config->SMART_MINQP,
+				config->SMART_STATIC_TIME, config->SMART_QUALITY_LVL);
+		printf("[config] Smart RC: MAX_BITRATE=%d kbps @1920x1080 -> %.0f kbps cap @%dx%d"
+				" (floor ~%.0f kbps at quality_lvl=%d)\n",
+				config->SMART_MAX_BITRATE, smart_max, w, h,
+				smart_max * quality[ql], ql);
+		if (config->ENCODING_TYPE == ENC_RC_MODE_SMART)
+			printf("[config] Smart RC: [user] BITRATE=%.0f is UNUSED in SMART mode\n",
+					config->BITRATE);
+
+		if (config->NIGHT_FPS_NUM > 0 || config->NIGHT_BITRATE > 0) {
+			double night_max = config->NIGHT_BITRATE * scale;
+			int nql = config->NIGHT_QUALITY_LVL;
+			if (nql < 0) nql = 0;
+			if (nql > 7) nql = 7;
+			printf("[config] Night RC: %d/%d fps, BITRATE=%d -> %.0f kbps cap, "
+					"max_qp=%d quality_lvl=%d (floor ~%.0f kbps)\n",
+					config->NIGHT_FPS_NUM, config->NIGHT_FPS_DEN,
+					config->NIGHT_BITRATE, night_max, config->NIGHT_MAXQP, nql,
+					night_max * quality[nql]);
+			if (config->NIGHT_BITRATE <= 0)
+				printf("[config] Night RC: WARNING: [night] BITRATE=0 — the day cap "
+						"stays in force at night\n");
+		} else {
+			printf("[config] Night RC: not configured (day settings kept at night)\n");
+		}
+	}
+
+	printf("[config] Autonight: enabled=%d night_thresh=%d day_thresh=%d "
+			"ir_led_thresh=%d ir_led_off=%d interval=%ds\n",
+			config->AUTONIGHT_ENABLED, config->AUTONIGHT_NIGHT_THRESH,
+			config->AUTONIGHT_DAY_THRESH, config->AUTONIGHT_IR_LED_THRESH,
+			config->AUTONIGHT_IR_LED_OFF, config->AUTONIGHT_INTERVAL);
 
 	return 0;
 }
