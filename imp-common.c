@@ -421,6 +421,10 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->AUTONIGHT_IR_LED_OFF = atoi(value);
 	} else if (MATCH("autonight", "INTERVAL")){
 		pconfig->AUTONIGHT_INTERVAL = atoi(value);
+	} else if (MATCH("autonight", "EV_REPORT_S")){
+		pconfig->AUTONIGHT_EV_REPORT_S = atoi(value);
+	} else if (MATCH("autonight", "EV_VERBOSE")){
+		pconfig->AUTONIGHT_EV_VERBOSE = atoi(value);
 	} else {
 		/* Unknown key/section: ignore rather than signal an error. minIni
 		 * treats a 0 return as a parse error (it stops/aborts and returns
@@ -486,6 +490,8 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->AUTONIGHT_IR_LED_THRESH = 3000000;
 	config->AUTONIGHT_IR_LED_OFF = 0;
 	config->AUTONIGHT_INTERVAL = 3;
+	config->AUTONIGHT_EV_REPORT_S = 300;
+	config->AUTONIGHT_EV_VERBOSE = 0;
 
 	if (ini_parse(ini_path, handler, config) < 0) {
 		printf("[config] Can't load %s\n", ini_path);
@@ -584,10 +590,11 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	}
 
 	printf("[config] Autonight: enabled=%d night_thresh=%d day_thresh=%d "
-			"ir_led_thresh=%d ir_led_off=%d interval=%ds\n",
+			"ir_led_thresh=%d ir_led_off=%d interval=%ds ev_report=%ds ev_verbose=%d\n",
 			config->AUTONIGHT_ENABLED, config->AUTONIGHT_NIGHT_THRESH,
 			config->AUTONIGHT_DAY_THRESH, config->AUTONIGHT_IR_LED_THRESH,
-			config->AUTONIGHT_IR_LED_OFF, config->AUTONIGHT_INTERVAL);
+			config->AUTONIGHT_IR_LED_OFF, config->AUTONIGHT_INTERVAL,
+			config->AUTONIGHT_EV_REPORT_S, config->AUTONIGHT_EV_VERBOSE);
 
 	return 0;
 }
@@ -981,11 +988,20 @@ extern void apply_night_encoding(int night);
 void *sample_soft_photosensitive_thread(void *p)
 {
 	app_config_t *cfg = (app_config_t *)p;
-	int evDebugCount = 10000;
 	int ev_err_count = 0;
 	char tmstr[16];
 	int avgExp = 0;
 	int avgExp_init = 0;
+	/* Rolling EV range tracking (see the report below for why). */
+	int ev_report_s = cfg->AUTONIGHT_EV_REPORT_S > 0 ?
+			cfg->AUTONIGHT_EV_REPORT_S : 300;
+	int ev_report_in = ev_report_s;
+	unsigned long ev_samples = 0;
+	int ev_win_min = 0, ev_win_max = 0;
+	int ev_win_min_again = 0, ev_win_max_again = 0;
+	int ev_win_min_dgain = 0, ev_win_max_dgain = 0;
+	int ev_all_min = 0, ev_all_max = 0;
+	int ev_all_min_again = 0, ev_all_max_again = 0;
 	IMPISPRunningMode pmode;
 	int ir_leds_active = 0;
 	int last_night_state = -1;
@@ -1015,10 +1031,63 @@ void *sample_soft_photosensitive_thread(void *p)
 			ev_err_count = 0;
 		}
 
-		if (evDebugCount > 0) {
+		if (cfg->AUTONIGHT_EV_VERBOSE)
 			printf("[autonight] EV: exp %d aGain %d dGain %d\n",
 					expAttr.ev, expAttr.again, expAttr.dgain);
-			evDebugCount--;
+
+		/* Rolling EV statistics.
+		 *
+		 * The night/day thresholds are guesses until you have seen the range
+		 * this ISP actually produces, and the EV scale turned out to be
+		 * neither documented nor intuitive: on a T20/JXF23 it has been
+		 * observed from ~76 up to ~380000, varying with AE convergence and
+		 * with the sensor frame rate. Shipping thresholds like 2000000/
+		 * 8000000 means night mode never fires and the IR LEDs never turn
+		 * on, so the camera encodes a dark, noise-dominated image 24/7 —
+		 * expensive to encode and it defeats the bitrate cap.
+		 *
+		 * So track the observed range instead of guessing. All-time min/max
+		 * plus a window that resets each report, so one line tells you both
+		 * "right now" and "over the whole run so far". */
+		if (ev_samples == 0) {
+			ev_win_min = ev_all_min = expAttr.ev;
+			ev_win_max = ev_all_max = expAttr.ev;
+			ev_win_min_again = ev_all_min_again = expAttr.again;
+			ev_win_max_again = ev_all_max_again = expAttr.again;
+			ev_win_min_dgain = expAttr.dgain;
+			ev_win_max_dgain = expAttr.dgain;
+		} else {
+			if (expAttr.ev < ev_win_min)  ev_win_min = expAttr.ev;
+			if (expAttr.ev > ev_win_max)  ev_win_max = expAttr.ev;
+			if (expAttr.ev < ev_all_min)  ev_all_min = expAttr.ev;
+			if (expAttr.ev > ev_all_max)  ev_all_max = expAttr.ev;
+			if (expAttr.again < ev_win_min_again) ev_win_min_again = expAttr.again;
+			if (expAttr.again > ev_win_max_again) ev_win_max_again = expAttr.again;
+			if (expAttr.again < ev_all_min_again) ev_all_min_again = expAttr.again;
+			if (expAttr.again > ev_all_max_again) ev_all_max_again = expAttr.again;
+			if (expAttr.dgain < ev_win_min_dgain) ev_win_min_dgain = expAttr.dgain;
+			if (expAttr.dgain > ev_win_max_dgain) ev_win_max_dgain = expAttr.dgain;
+		}
+		ev_samples++;
+
+		ev_report_in -= interval;
+		if (ev_report_in <= 0) {
+			ev_report_in = ev_report_s;
+			printf("[autonight] EV range (last %ds, %lu samples): ev %d..%d, "
+					"aGain %d..%d, dGain %d..%d | since start: ev %d..%d | "
+					"thresholds day<%d night>%d irled>%d | ISP %s, night_enc %d\n",
+					ev_report_s, ev_samples,
+					ev_win_min, ev_win_max,
+					ev_win_min_again, ev_win_max_again,
+					ev_win_min_dgain, ev_win_max_dgain,
+					ev_all_min, ev_all_max,
+					day_thresh, night_thresh, ir_led_thresh,
+					isp_night ? "NIGHT" : "DAY", g_night_mode ? 1 : 0);
+			/* Reset the window, keep the all-time extremes. */
+			ev_win_min = ev_win_max = avgExp;
+			ev_win_min_again = ev_win_max_again = 0;
+			ev_win_min_dgain = ev_win_max_dgain = 0;
+			ev_samples = 0;
 		}
 
 		/* EMA with fixed the test unit = 1/4 (shift-based, no division) */
@@ -1038,7 +1107,6 @@ void *sample_soft_photosensitive_thread(void *p)
 			if (pmode != IMPISP_RUNNING_MODE_NIGHT) {
 				printf("[%s] avgExp %d > %d -> NIGHT\n",
 						get_curr_timestr((char *) &tmstr), avgExp, night_thresh);
-				evDebugCount = 10;
 				IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_NIGHT);
 				sample_set_IRCUT(1);
 				isp_night = 1;
@@ -1047,7 +1115,6 @@ void *sample_soft_photosensitive_thread(void *p)
 			if (pmode != IMPISP_RUNNING_MODE_DAY) {
 				printf("[%s] avgExp %d < %d -> DAY\n",
 						get_curr_timestr((char *) &tmstr), avgExp, day_thresh);
-				evDebugCount = 10;
 				IMP_ISP_Tuning_SetISPRunningMode(IMPISP_RUNNING_MODE_DAY);
 				sample_set_IRCUT(0);
 				isp_night = 0;

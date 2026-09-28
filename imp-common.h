@@ -240,6 +240,13 @@ typedef struct{
 	int AUTONIGHT_IR_LED_THRESH;
 	int AUTONIGHT_IR_LED_OFF;
 	int AUTONIGHT_INTERVAL;
+	/* Seconds between rolling EV range reports. The night/day thresholds have
+	 * to be calibrated against the EV this ISP actually produces, and the only
+	 * reliable way to get that is to log the observed range and compare. */
+	int AUTONIGHT_EV_REPORT_S;
+	/* Log every individual EV sample. Off by default: the original build
+	 * printed 10000 of them, which buried everything else in the log. */
+	int AUTONIGHT_EV_VERBOSE;
 } app_config_t;
 
 int app_config_parse(const char *ini_path, app_config_t *config);
