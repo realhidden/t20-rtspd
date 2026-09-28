@@ -75,6 +75,11 @@ struct chn_conf chn[FS_CHN_NUM] = {
 };
 
 IMPSensorInfo sensor_info;
+
+/* Set by sample_encoder_set_config() before the pipeline is started, so it is
+ * already valid by the time sample_system_init() runs. */
+static app_config_t *g_app_config = NULL;
+
 int sample_system_init()
 {
 	int ret = 0;
@@ -118,10 +123,25 @@ int sample_system_init()
 		return -1;
 	}
 
-    ret = IMP_ISP_Tuning_SetSensorFPS(SENSOR_FRAME_RATE_NUM, SENSOR_FRAME_RATE_DEN);
-    if (ret < 0){
-        IMP_LOG_ERR(TAG, "failed to set sensor fps\n");
-        return -1;
+    /* Sensor/ISP frame rate. This is the single biggest lever on CPU: the
+     * ISP, the framesource scaler and the encoder all cost per sensor frame,
+     * not per encoded frame. Lowering RATENUM/RATEDEN alone only drops frames
+     * after the work is already done. */
+    {
+        int fps_num = SENSOR_FRAME_RATE_NUM;
+        int fps_den = SENSOR_FRAME_RATE_DEN;
+        if (g_app_config && g_app_config->SENSOR_FPS_NUM > 0) {
+            fps_num = g_app_config->SENSOR_FPS_NUM;
+            fps_den = g_app_config->SENSOR_FPS_DEN > 0 ?
+                      g_app_config->SENSOR_FPS_DEN : 1;
+        }
+        ret = IMP_ISP_Tuning_SetSensorFPS(fps_num, fps_den);
+        if (ret < 0){
+            IMP_LOG_ERR(TAG, "failed to set sensor fps %d/%d\n", fps_num, fps_den);
+            return -1;
+        }
+        printf("[capture] Sensor/ISP frame rate set to %d/%d fps = %.2f fps\n",
+                fps_num, fps_den, (double)fps_num / (double)fps_den);
     }
 
 	IMP_LOG_INFO(TAG, "ImpSystemInit success\n");
@@ -302,6 +322,10 @@ static int handler(void* user, const char* section, const char* name, const char
         pconfig->RATENUM  = atoi(value);
     } else if (MATCH("user", "RATEDEN")){
         pconfig->RATEDEN  = atoi(value);
+    } else if (MATCH("user", "SENSOR_FPS_NUM")){
+        pconfig->SENSOR_FPS_NUM  = atoi(value);
+    } else if (MATCH("user", "SENSOR_FPS_DEN")){
+        pconfig->SENSOR_FPS_DEN  = atoi(value);
     } else if (MATCH("user", "PROFILE")){
         pconfig->PROFILE  = atoi(value);
     } else if (MATCH("user", "BITRATE")){
@@ -474,6 +498,26 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 			config->BITRATE, config->PROFILE);
 	printf("[config] Resolution: %dx%d @ %d/%d fps\n",
 			config->WIDTH, config->HEIGHT, config->RATENUM, config->RATEDEN);
+
+	/* Sensor fps is the real CPU driver; make the relationship explicit and
+	 * catch the common misconfiguration of asking the encoder for more frames
+	 * than the ISP produces. */
+	{
+		int sfn = config->SENSOR_FPS_NUM > 0 ? config->SENSOR_FPS_NUM : SENSOR_FRAME_RATE_NUM;
+		int sfd = config->SENSOR_FPS_DEN > 0 ? config->SENSOR_FPS_DEN : SENSOR_FRAME_RATE_DEN;
+		double sensor_fps = (double)sfn / (double)sfd;
+		double out_fps = (config->RATEDEN > 0 && config->RATENUM > 0) ?
+			(double)config->RATENUM / (double)config->RATEDEN : 0.0;
+		printf("[config] Sensor fps: %d/%d = %.2f fps (drives ISP+scaler+encoder CPU)\n",
+				sfn, sfd, sensor_fps);
+		if (out_fps > sensor_fps)
+			printf("[config] WARNING: output %.2f fps exceeds sensor %.2f fps — "
+					"the extra frames cannot exist\n", out_fps, sensor_fps);
+		else if (out_fps > 0 && out_fps < sensor_fps)
+			printf("[config] Note: encoding %.2f of %.2f sensor fps; the skipped "
+					"sensor frames are still produced and cost CPU to scale\n",
+					out_fps, sensor_fps);
+	}
 	printf("[config] Recording: enabled=%d dir=%s chunk=%ds threshold=%d%%\n",
 			config->recording_enabled, config->recording_output_dir,
 			config->recording_chunk_duration, config->recording_disk_threshold);
@@ -549,8 +593,6 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 }
 
 /* Global config pointer set by main before calling sample_encoder_init */
-static app_config_t *g_app_config = NULL;
-
 void sample_encoder_set_config(app_config_t *config)
 {
 	g_app_config = config;

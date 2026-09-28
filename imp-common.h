@@ -181,6 +181,13 @@ typedef struct{
 	int HEIGHT;
 	int RATENUM;
 	int RATEDEN;
+	/* Sensor/ISP frame rate (IMP_ISP_Tuning_SetSensorFPS). This is the rate
+	 * the ISP produces frames at, and it is what the scaler and encoder
+	 * pipeline actually costs CPU on — RATENUM/RATEDEN only throttles how
+	 * many of those frames reach the encoder, it does not reduce the work
+	 * per second. 0 = use the compile-time SENSOR_FRAME_RATE_* default. */
+	int SENSOR_FPS_NUM;
+	int SENSOR_FPS_DEN;
 	int PROFILE;
 	/* recording settings */
 	int recording_enabled;
