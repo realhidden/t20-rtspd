@@ -409,6 +409,8 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->NIGHT_MAXQP = atoi(value);
 	} else if (MATCH("night", "QUALITY_LVL")){
 		pconfig->NIGHT_QUALITY_LVL = atoi(value);
+	} else if (MATCH("night", "ISP_DENOISE")){
+		pconfig->NIGHT_ISP_DENOISE = atoi(value);
 	} else if (MATCH("night", "COLOR2GREY")){
 		pconfig->NIGHT_COLOR2GREY = atoi(value);
 	} else if (MATCH("user", "DAY_COLOR2GREY")){
@@ -500,6 +502,7 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->NIGHT_MAXQP = 0;
 	config->NIGHT_QUALITY_LVL = 0;
 	config->NIGHT_COLOR2GREY = 0;
+	config->NIGHT_ISP_DENOISE = 0;
 	config->DAY_COLOR2GREY = 0;
 	config->DENOISE = 0;
 	config->DENOISE_TYPE = 0;

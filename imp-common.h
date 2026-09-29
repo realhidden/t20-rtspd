@@ -267,6 +267,18 @@ typedef struct{
 	/* Seconds to wait after switching the IR LEDs on before judging whether
 	 * they are actually lighting the scene. 0 disables the health check. */
 	int AUTONIGHT_IR_CHECK_GRACE_S;
+	/* ISP spatial + temporal denoise strength applied at night (0-255).
+	 * 0 = leave the ISP's own tuning alone.
+	 *
+	 * This is the only lever that attacks the actual cost. The encoder thread
+	 * burns ~24% of the core spinning while the hardware encodes, and that
+	 * time tracks image complexity: at night the AE sits at 103-128 dB of
+	 * analog gain with no IR illuminator to help, so the sensor output is
+	 * amplified noise, which the encoder must chew through bit by bit. Denoise
+	 * upstream of the encoder reduces hardware encode time, bytes, and spin
+	 * together, and it is the only one of the three that is reachable from
+	 * userspace. The day-time ISP values are captured at init and restored. */
+	int NIGHT_ISP_DENOISE;
 } app_config_t;
 
 int app_config_parse(const char *ini_path, app_config_t *config);

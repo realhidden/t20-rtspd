@@ -31,6 +31,74 @@ extern int IMP_Encoder_SetPoolSize(int newPoolSize0);
 volatile int g_night_mode = 0;
 static app_config_t *g_app_config = NULL;
 
+/* ISP denoise, saved at init so daytime can be restored exactly.
+ *
+ * The encoder thread spends ~24% of the core spinning while the hardware
+ * encodes, and that scales with image complexity. At night there is no
+ * working IR illuminator, so the AE runs at 103-128 dB analog gain and hands
+ * the encoder amplified noise. Denoising in the ISP is upstream of the
+ * encoder and is the only place reachable from userspace that can reduce
+ * hardware encode time, output bytes and spin together.
+ *
+ * Keep the ISP's own daylight values so switching back does not leave the
+ * camera looking denoised at noon.
+ */
+static IMPISPSinterDenoiseAttr g_sinter_saved;
+static IMPISPTemperDenoiseAttr g_temper_saved;
+static int g_denoise_saved;
+
+static void isp_denoise_save(void)
+{
+	if (g_denoise_saved) return;
+	if (IMP_ISP_Tuning_GetSinterDnsAttr(&g_sinter_saved) == 0 &&
+	    IMP_ISP_Tuning_GetTemperDnsAttr(&g_temper_saved) == 0) {
+		g_denoise_saved = 1;
+		printf("[denoise] saved ISP sinter(enable=%d type=%d str=%d) "
+				"temper(type=%d str=%d)\n",
+				g_sinter_saved.enable, g_sinter_saved.type,
+				g_sinter_saved.sinter_strength,
+				g_temper_saved.type, g_temper_saved.temper_strength);
+	} else {
+		printf("[denoise] could not read current ISP denoise attrs\n");
+	}
+}
+
+static void isp_denoise_apply(int night)
+{
+	if (!g_app_config) return;
+	int strength = night ? g_app_config->NIGHT_ISP_DENOISE : 0;
+
+	if (strength <= 0) {
+		if (g_denoise_saved) {
+			IMP_ISP_Tuning_SetSinterDnsAttr(&g_sinter_saved);
+			IMP_ISP_Tuning_SetTemperDnsAttr(&g_temper_saved);
+			printf("[denoise] restored ISP defaults (day)\n");
+		}
+		return;
+	}
+
+	isp_denoise_save();
+	if (strength > 255) strength = 255;
+
+	IMPISPSinterDenoiseAttr s = g_sinter_saved;
+	s.enable = IMPISP_TUNING_OPS_MODE_ENABLE;
+	s.type = IMPISP_TUNING_OPS_TYPE_MANUAL;
+	s.sinter_strength = (unsigned char)strength;
+	s.sval_min = (unsigned char)strength;
+	s.sval_max = (unsigned char)strength;
+	int r1 = IMP_ISP_Tuning_SetSinterDnsAttr(&s);
+
+	IMPISPTemperDenoiseAttr t = g_temper_saved;
+	t.type = IMPISP_TEMPER_MANUAL;
+	t.temper_strength = (unsigned char)strength;
+	t.tval_min = (unsigned char)strength;
+	t.tval_max = (unsigned char)strength;
+	int r2 = IMP_ISP_Tuning_SetTemperDnsAttr(&t);
+
+	printf("[denoise] night strength=%d (sinter rc=%d, temper rc=%d)\n",
+			strength, r1, r2);
+}
+
 static void sigusr1_handler(int sig) {
 	(void)sig;
 	g_night_mode = !g_night_mode;
@@ -74,6 +142,9 @@ void apply_night_encoding(int night) {
 	 * waste, and noise in the luma path is exactly what defeats the bitrate
 	 * cap once QP saturates. So switch to monochrome at night and back to
 	 * colour in daylight, where colour is real and worth paying for. */
+	/* ISP denoise follows the same day/night switch. */
+	isp_denoise_apply(night);
+
 	{
 		IMPEncoderColor2GreyCfg grey;
 		grey.enable = night ? (g_app_config->NIGHT_COLOR2GREY ? 1 : 0)
@@ -252,6 +323,10 @@ int capture_and_encoding(void *cfg)
 	} else {
 		printf("[capture] Autonight disabled (set [autonight] ENABLED=1 in config)\n");
 	}
+
+	/* Capture the ISP's own denoise settings so daytime can be restored
+	 * after a night applies the configured strength. */
+	isp_denoise_save();
 
 	printf("[capture] Pipeline ready\n");
 	return 0;
