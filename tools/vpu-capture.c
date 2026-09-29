@@ -32,6 +32,7 @@
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <sys/time.h>
 #include <sys/ioctl.h>
 
 #define MAX_TRACKED_FDS 32
@@ -135,7 +136,9 @@ static const char *req_name(unsigned long r)
 
 /* Only dump the vconfig once per request kind, otherwise we get thousands of
  * identical multi-KB dumps per second. */
-static int dumped_start, dumped_run, dumped_req;
+static int traced_runs;
+#define TRACE_FRAMES 3
+static struct timeval g_t0;
 
 static void dump_vconfig(const char *tag, unsigned int addr, int budget)
 {
@@ -262,6 +265,7 @@ static void memcpy_report(void)
 __attribute__((constructor)) static void vpu_cap_init(void)
 {
 	out_open();
+	gettimeofday(&g_t0, NULL);
 	atexit(memcpy_report);
 }
 
@@ -325,24 +329,35 @@ int ioctl(int fd, unsigned long request, ...)
 		return r;
 
 	/* Register access has its own struct; decoding it as channel_node
-	 * produced garbage, which is how this was found. */
+	 * produced garbage, which is how this was found.
+	 *
+	 * Trace the first TRACE_FRAMES encodes in full: the register recipe
+	 * libimp programs an encode with is the input a replacement encoder
+	 * needs, and it is only visible here. */
 	if (request == IOCTL_CHANNEL_WOR_VPU_REG) {
 		struct reg_info *ri = (struct reg_info *)arg;
 		if (ri->dir == 0) {
 			poll_note(ri->paddr);
-			if (dumped_start == 0) {
-				dumped_start = 1;	/* one full register trace only */
-				fprintf(out, "REG read  paddr=0x%08x value=0x%08x\n",
+			if (traced_runs < TRACE_FRAMES)
+				fprintf(out, "  REG r 0x%08x -> 0x%08x\n",
 						ri->paddr, ri->value);
-			}
-		} else if (dumped_start == 0) {
-			fprintf(out, "REG write paddr=0x%08x value=0x%08x\n",
-					ri->paddr, ri->value);
+		} else {
+			if (traced_runs < TRACE_FRAMES)
+				fprintf(out, "  REG w 0x%08x <- 0x%08x\n",
+						ri->paddr, ri->value);
 		}
 		return r;
 	}
 
 	cn = (struct channel_node *)arg;
+	if (request == IOCTL_CHANNEL_RUN && traced_runs < TRACE_FRAMES) {
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+		long ms = (tv.tv_sec - g_t0.tv_sec) * 1000 +
+			  (tv.tv_usec - g_t0.tv_usec) / 1000;
+		fprintf(out, "FRAME %d t=%ldms\n", traced_runs, ms);
+		traced_runs++;
+	}
 	fprintf(out, "IOCTL %s (0x%lx) fd=%d ret=%d\n",
 			req_name(request), request, fd, r);
 	fprintf(out, "  clist=0x%08x vlist=0x%08x mdelay=%u channel_id=%u vpu_id=%d\n",
@@ -352,15 +367,5 @@ int ioctl(int fd, unsigned long request, ...)
 	fprintf(out, "  dma_addr=0x%08x thread_id=%d cmpx=%u n_flag=%u ncu_addr=0x%08x\n",
 			cn->dma_addr, cn->thread_id, cn->cmpx, cn->n_flag, cn->ncu_addr);
 
-	if (request == IOCTL_CHANNEL_REQ && !dumped_req) {
-		dumped_req = 1;
-		dump_vconfig("REQ", cn->ncu_addr, 256);
-	} else if (request == IOCTL_CHANNEL_START && !dumped_start) {
-		dumped_start = 1;
-		dump_vconfig("START", cn->ncu_addr, 512);
-	} else if (request == IOCTL_CHANNEL_RUN && !dumped_run) {
-		dumped_run = 1;
-		dump_vconfig("RUN", cn->ncu_addr, 512);
-	}
 	return r;
 }
