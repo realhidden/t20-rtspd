@@ -12,3 +12,7 @@ t20-rtspd
 # Downloaded build sources (fetched pinned by build_docker.sh)
 mbedtls-*.tar.*
 ffmpeg-*.tar.*
+
+# Cross-built tool binaries (produced by tools/*.c via the MIPS toolchain)
+tools/pwmtest
+tools/vpu-capture.so
