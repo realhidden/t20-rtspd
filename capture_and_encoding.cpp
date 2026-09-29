@@ -269,6 +269,10 @@ int capture_and_encoding(void *cfg)
 	}
 	printf("[capture] IMP system initialized\n");
 
+	/* Configure the framesource output size BEFORE the channel is created,
+	 * so the ISP scaler does the downscale in hardware. */
+	sample_framesource_set_output_size();
+
 	/* Step.2 FrameSource init */
 	ret = sample_framesource_init();
 	if (ret < 0) {

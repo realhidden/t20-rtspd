@@ -296,6 +296,7 @@ struct chn_conf{
 int sample_system_init();
 int sample_system_exit();
 
+void sample_framesource_set_output_size(void);
 int sample_framesource_streamon();
 int sample_framesource_streamoff();
 

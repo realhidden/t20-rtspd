@@ -186,6 +186,51 @@ int sample_system_exit()
 	return 0;
 }
 
+/* Apply the configured encode size to framesource channel 0.
+ *
+ * Channel 0 was declared with .scaler.enable = 0 and picWidth/picHeight at the
+ * sensor size, and sample_encoder_init() then overwrote picWidth/picHeight
+ * on the struct *after* the channel had already been created. With no
+ * hardware scaler to reconcile a smaller encode size against a 1920x1080 crop,
+ * libimp falls back to a software scale in userspace.
+ *
+ * That software scale is what the 24% was. Measured on the test unit: encoding at
+ * 1280x720 costs Encoder-0 24.18%, but encoding at the sensor's native
+ * 1920x1080 -- where no scale is needed, and 2.25x more pixels -- costs only
+ * 2.24%. So the cost is the downscale, not the encoding.
+ *
+ * Configuring the ISP scaler properly moves that work into hardware, the same
+ * way channel 1 already does it.
+ *
+ * Must run before IMP_FrameSource_CreateChn().
+ */
+void sample_framesource_set_output_size(void)
+{
+	int w = g_app_config ? g_app_config->WIDTH : 0;
+	int h = g_app_config ? g_app_config->HEIGHT : 0;
+
+	if (w <= 0 || h <= 0)
+		return;			/* keep the compile-time sensor size */
+	if (w == SENSOR_WIDTH && h == SENSOR_HEIGHT) {
+		printf("[capture] encode size %dx%d matches sensor: no scaler needed\n",
+				w, h);
+		return;
+	}
+	if (w > SENSOR_WIDTH || h > SENSOR_HEIGHT) {
+		printf("[capture] encode size %dx%d exceeds sensor %dx%d, ignoring\n",
+				w, h, SENSOR_WIDTH, SENSOR_HEIGHT);
+		return;
+	}
+
+	chn[0].fs_chn_attr.scaler.enable = 1;
+	chn[0].fs_chn_attr.scaler.outwidth = w;
+	chn[0].fs_chn_attr.scaler.outheight = h;
+	chn[0].fs_chn_attr.picWidth = w;
+	chn[0].fs_chn_attr.picHeight = h;
+	printf("[capture] framesource scaler: %dx%d -> %dx%d (hardware)\n",
+			SENSOR_WIDTH, SENSOR_HEIGHT, w, h);
+}
+
 int sample_framesource_streamon()
 {
 	int ret = 0, i = 0;
