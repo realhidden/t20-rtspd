@@ -264,6 +264,9 @@ typedef struct{
 	/* H-skip black enhance: pairs with the H-skip config already in
 	 * sample_encoder_init(), which is currently set up but never enabled. */
 	int HSKIP_BLACK_ENHANCE;
+	/* Seconds to wait after switching the IR LEDs on before judging whether
+	 * they are actually lighting the scene. 0 disables the health check. */
+	int AUTONIGHT_IR_CHECK_GRACE_S;
 } app_config_t;
 
 int app_config_parse(const char *ini_path, app_config_t *config);

@@ -437,6 +437,8 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->AUTONIGHT_INTERVAL = atoi(value);
 	} else if (MATCH("autonight", "EV_REPORT_S")){
 		pconfig->AUTONIGHT_EV_REPORT_S = atoi(value);
+	} else if (MATCH("autonight", "IR_CHECK_GRACE_S")){
+		pconfig->AUTONIGHT_IR_CHECK_GRACE_S = atoi(value);
 	} else if (MATCH("autonight", "EV_VERBOSE")){
 		pconfig->AUTONIGHT_EV_VERBOSE = atoi(value);
 	} else {
@@ -504,6 +506,7 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->DENOISE_IQP = 40;
 	config->DENOISE_PQP = 40;
 	config->HSKIP_BLACK_ENHANCE = 0;
+	config->AUTONIGHT_IR_CHECK_GRACE_S = 20;
 	/* Autonight: built-in photosensitive detection */
 	config->AUTONIGHT_ENABLED = 0;
 	config->AUTONIGHT_NIGHT_THRESH = 1200000;
@@ -1027,8 +1030,35 @@ int sample_set_IRCUT(int enable)
 	return 0;
 }
 
-char *get_curr_timestr(char *buf) {
-	time_t t;
+/* --- Hardware fault reporting ---
+ *
+ * Publishes detected hardware faults to /var/run/hwstatus for the client
+ * daemon to pick up and forward as telemetry, so the dashboard can show
+ * "this camera has a hardware problem" instead of it being discovered by
+ * hand. Same mechanism the night_mode/ircut reporting uses. The file holds
+ * one fault tag per line; an absent file means "no faults". */
+static void publish_hw_fault(const char *tag)
+{
+	FILE *f = fopen("/var/run/hwstatus", "w");
+	if (f) {
+		fprintf(f, "%s\n", tag);
+		fclose(f);
+	}
+}
+
+static void clear_hw_fault(const char *tag)
+{
+	(void)tag;
+	/* Only one fault class is tracked for now, so an empty file means
+	 * clear. Re-open for write so the file stays present for readers. */
+	FILE *f = fopen("/var/run/hwstatus", "w");
+	if (f) {
+		fputs("none\n", f);
+		fclose(f);
+	}
+}
+
+char *get_curr_timestr(char *buf) {	time_t t;
 	struct tm *tminfo;
 
 	time(&t);
@@ -1061,6 +1091,14 @@ void *sample_soft_photosensitive_thread(void *p)
 	int ev_all_min_again = 0, ev_all_max_again = 0;
 	IMPISPRunningMode pmode;
 	int ir_leds_active = 0;
+	/* IR illuminator health check state */
+	int ir_check_grace_s = cfg->AUTONIGHT_IR_CHECK_GRACE_S > 0 ?
+			cfg->AUTONIGHT_IR_CHECK_GRACE_S : 20;
+	int ir_check_grace_ticks = 0;
+	int ir_check_pending = 0;
+	int ir_check_ticks_left = 0;
+	int ir_check_ev_at_on = 0;
+	int ir_fault_reported = 0;
 	int last_night_state = -1;
 	int isp_night = -1;	/* hysteresis-protected mode: 1=night 0=day, -1=unknown */
 
@@ -1069,6 +1107,11 @@ void *sample_soft_photosensitive_thread(void *p)
 	int ir_led_thresh = cfg->AUTONIGHT_IR_LED_THRESH;
 	int ir_led_off = cfg->AUTONIGHT_IR_LED_OFF;
 	int interval = cfg->AUTONIGHT_INTERVAL;
+
+	/* The health check counts poll ticks, so convert the grace period once
+	 * the poll interval is known. */
+	if (interval > 0)
+		ir_check_grace_ticks = (ir_check_grace_s + interval - 1) / interval;
 
 	printf("[autonight] Starting: night_thresh=%d day_thresh=%d ir_led_thresh=%d interval=%ds ir_led_off=%d\n",
 			night_thresh, day_thresh, ir_led_thresh, interval, ir_led_off);
@@ -1206,11 +1249,58 @@ void *sample_soft_photosensitive_thread(void *p)
 						get_curr_timestr((char *) &tmstr), avgExp);
 				sample_set_IRLED(1);
 				ir_leds_active = 1;
+				ir_check_pending = 1;
+				ir_check_ticks_left = ir_check_grace_ticks;
+				ir_check_ev_at_on = avgExp;
 			} else if (!want_on && ir_leds_active) {
 				printf("[%s] avgExp %d -> IR LEDs OFF\n",
 						get_curr_timestr((char *) &tmstr), avgExp);
 				sample_set_IRLED(0);
 				ir_leds_active = 0;
+				ir_check_pending = 0;
+			}
+		}
+
+		/* IR illuminator health check.
+		 *
+		 * Turning the LEDs on must make the scene brighter, so the ISP
+		 * pulls exposure down and avgExp falls. If avgExp is still above
+		 * the day threshold once the grace period has passed, nothing is
+		 * lighting the scene and the IR array is not working.
+		 *
+		 * This is a real hardware fault on these units: the stock firmware
+		 * drives the LED array through a PWM ioctl on /dev/pwm, and this
+		 * firmware ships without that node (loading sample_pwm_core.ko /
+		 * sample_pwm_hal.ko creates it, and the ioctls succeed, but no PWM
+		 * channel or exported GPIO moves the sensor -- verified by snapshot
+		 * R/B ratio, which IR illumination would push well above 1). The
+		 * symptom is otherwise silent: the AE just sits at 100+ dB of
+		 * analog gain and the night bitrate overruns its cap.
+		 *
+		 * Report it once per night rather than every poll, and publish it
+		 * for the dashboard the same way night_mode is published. */
+		if (ir_check_pending && ir_check_grace_ticks > 0) {
+			ir_check_ticks_left--;
+			if (ir_check_ticks_left <= 0) {
+				ir_check_pending = 0;
+				if (avgExp > day_thresh) {
+					if (!ir_fault_reported) {
+						ir_fault_reported = 1;
+						printf("[hwfault] IR LED array not illuminating: "
+								"avgExp %d still above day_thresh %d %ds after "
+								"IR LEDs ON (was %d). No PWM channel or GPIO on "
+								"this unit drives the array; check IR_LED_OFF.\n",
+								avgExp, day_thresh, ir_check_grace_s,
+								ir_check_ev_at_on);
+					}
+					publish_hw_fault("ir_led");
+				} else {
+					ir_fault_reported = 0;
+					printf("[hwfault] IR LED array OK: avgExp fell to %d "
+							"(day_thresh %d) after IR LEDs ON\n",
+							avgExp, day_thresh);
+					clear_hw_fault("ir_led");
+				}
 			}
 		}
 
