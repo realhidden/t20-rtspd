@@ -64,6 +64,27 @@ void apply_night_encoding(int night) {
 	ret = IMP_Encoder_SetChnAttrRcMode(encChn, &rcMode);
 	if (ret != 0) printf("[night] SetChnRcMode failed: %d\n", ret);
 
+	/* Color2Grey: drop the chroma planes and emit monochrome.
+	 *
+	 * This camera has no working IR illuminator (there is no /dev/pwm in this
+	 * firmware, so the LED array the stock driver used to drive cannot be
+	 * driven at all). At night the IR-cut opens onto nothing, the AE sits at
+	 * 103-128 dB analog gain, and the sensor output is amplified noise with
+	 * no colour information in it. Encoding chroma for that image is pure
+	 * waste, and noise in the luma path is exactly what defeats the bitrate
+	 * cap once QP saturates. So switch to monochrome at night and back to
+	 * colour in daylight, where colour is real and worth paying for. */
+	{
+		IMPEncoderColor2GreyCfg grey;
+		grey.enable = night ? (g_app_config->NIGHT_COLOR2GREY ? 1 : 0)
+		                    : (g_app_config->DAY_COLOR2GREY ? 1 : 0);
+		ret = IMP_Encoder_SetChnColor2Grey(encChn, &grey);
+		if (ret != 0)
+			printf("[night] SetChnColor2Grey(%d) failed: %d\n", grey.enable, ret);
+		else
+			printf("[night] Color2Grey = %d\n", grey.enable);
+	}
+
 	if (night && g_app_config->NIGHT_FPS_NUM > 0) {
 		IMPEncoderFrmRate fps;
 		fps.frmRateNum = g_app_config->NIGHT_FPS_NUM;

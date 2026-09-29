@@ -247,6 +247,23 @@ typedef struct{
 	/* Log every individual EV sample. Off by default: the original build
 	 * printed 10000 of them, which buried everything else in the log. */
 	int AUTONIGHT_EV_VERBOSE;
+	/* Smart mode only.
+	 * Color2Grey makes the encoder drop the chroma planes entirely and emit
+	 * monochrome. At night this camera has no working IR illuminator, so the
+	 * image is amplified noise with no real colour in it — the chroma data is
+	 * pure cost, in both bytes and encode work. Left off in daylight, where
+	 * colour is worth keeping. */
+	int NIGHT_COLOR2GREY;
+	int DAY_COLOR2GREY;
+	/* Encoder-side denoise, set once at init (the SDK documents that enable
+	 * cannot be changed afterwards, only dnType). */
+	int DENOISE;
+	int DENOISE_TYPE;
+	int DENOISE_IQP;
+	int DENOISE_PQP;
+	/* H-skip black enhance: pairs with the H-skip config already in
+	 * sample_encoder_init(), which is currently set up but never enabled. */
+	int HSKIP_BLACK_ENHANCE;
 } app_config_t;
 
 int app_config_parse(const char *ini_path, app_config_t *config);

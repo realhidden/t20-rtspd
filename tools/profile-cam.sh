@@ -35,12 +35,13 @@ sample() {
         name=$(echo "$l" | sed 's/^[0-9]* (//; s/)[^)]*$//')
         # everything after the last ')' : state is field 1, so utime=12 stime=13
         rest=$(echo "$l" | sed 's/.*) //')
-        us=$(echo "$rest" | awk '{print $12+$13}')
+        ut=$(echo "$rest" | awk '{print $12}')
+        st=$(echo "$rest" | awk '{print $13}')
         # voluntary/involuntary ctxt switches and page faults from status
         vcs=$(awk '/^voluntary_ctxt_switches/{print $2}' "$t/status" 2>/dev/null)
         ivcs=$(awk '/^nonvoluntary_ctxt_switches/{print $2}' "$t/status" 2>/dev/null)
         minf=$(awk '/^minflt/{print $2}' "$t/status" 2>/dev/null)
-        echo "$tid $name $us ${vcs:-0} ${ivcs:-0} ${minf:-0}"
+        echo "$tid $name $ut $st ${vcs:-0} ${ivcs:-0} ${minf:-0}"
     done
 }
 
@@ -49,15 +50,23 @@ sleep "$SECS"
 sample > /tmp/.prof_b
 
 # Print the second sample keyed by tid so deltas are computed reliably.
+# utime/stime are kept separate on purpose: stime is work the thread spent in
+# the kernel (syscalls, ioctls, DMA/cache maintenance) and utime is work it
+# spent in userspace. That split decides whether a kernel-driver rewrite
+# could ever help -- if a thread's cost is utime, it is inside the vendor
+# userspace library and no driver change will touch it.
 awk -v TICKS="$TICKS" '
-NR==FNR { cpu[$1]=$3; vcs[$1]=$4; ivcs[$1]=$5; mf[$1]=$6; name[$1]=$2; next }
+NR==FNR { u[$1]=$3; s[$1]=$4; vcs[$1]=$5; ivcs[$1]=$6; mf[$1]=$7; name[$1]=$2; next }
 {
-    d  = $3 - cpu[$1]
-    dv = $4 - vcs[$1]
-    di = $5 - ivcs[$1]
-    dm = $6 - mf[$1]
-    printf "%-8s %-16s cpu_ticks=%-7d %6.2f%%  ctxsw=%-7d (vol=%-6d invol=%-5d) minflt=%d\n",
-           $1, name[$1], d, (d*100.0)/TICKS, dv+di, dv, di, dm
+    du = $3 - u[$1]
+    ds = $4 - s[$1]
+    dt = du + ds
+    pc = (dt*100.0)/TICKS
+    pu = (du*100.0)/TICKS
+    ps = (ds*100.0)/TICKS
+    printf "%-8s %-16s cpu=%6.2f%%  usr=%6.2f%%  sys=%6.2f%%  (%s)  ctxsw=%-6d minflt=%d\n",
+           $1, name[$1], pc, pu, ps, (ps > pu ? "KERNEL" : (pu > ps*2 ? "userspace" : "mixed")), \
+           ($5 - vcs[$1]) + ($6 - ivcs[$1]), $7 - mf[$1]
 }
 ' /tmp/.prof_a /tmp/.prof_b
 

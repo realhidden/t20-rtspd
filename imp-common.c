@@ -409,6 +409,20 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->NIGHT_MAXQP = atoi(value);
 	} else if (MATCH("night", "QUALITY_LVL")){
 		pconfig->NIGHT_QUALITY_LVL = atoi(value);
+	} else if (MATCH("night", "COLOR2GREY")){
+		pconfig->NIGHT_COLOR2GREY = atoi(value);
+	} else if (MATCH("user", "DAY_COLOR2GREY")){
+		pconfig->DAY_COLOR2GREY = atoi(value);
+	} else if (MATCH("user", "DENOISE")){
+		pconfig->DENOISE = atoi(value);
+	} else if (MATCH("user", "DENOISE_TYPE")){
+		pconfig->DENOISE_TYPE = atoi(value);
+	} else if (MATCH("user", "DENOISE_IQP")){
+		pconfig->DENOISE_IQP = atoi(value);
+	} else if (MATCH("user", "DENOISE_PQP")){
+		pconfig->DENOISE_PQP = atoi(value);
+	} else if (MATCH("user", "HSKIP_BLACK_ENHANCE")){
+		pconfig->HSKIP_BLACK_ENHANCE = atoi(value);
 	} else if (MATCH("autonight", "ENABLED")){
 		pconfig->AUTONIGHT_ENABLED = atoi(value);
 	} else if (MATCH("autonight", "NIGHT_THRESH")){
@@ -483,6 +497,13 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->NIGHT_BITRATE = 0;
 	config->NIGHT_MAXQP = 0;
 	config->NIGHT_QUALITY_LVL = 0;
+	config->NIGHT_COLOR2GREY = 0;
+	config->DAY_COLOR2GREY = 0;
+	config->DENOISE = 0;
+	config->DENOISE_TYPE = 0;
+	config->DENOISE_IQP = 40;
+	config->DENOISE_PQP = 40;
+	config->HSKIP_BLACK_ENHANCE = 0;
 	/* Autonight: built-in photosensitive detection */
 	config->AUTONIGHT_ENABLED = 0;
 	config->AUTONIGHT_NIGHT_THRESH = 1200000;
@@ -753,12 +774,48 @@ int sample_encoder_init()
 				return -1;
 			}
 
-			ret = IMP_Encoder_RegisterChn(chn[i].index, chn[i].index);
-			if (ret < 0) {
-				IMP_LOG_ERR(TAG, "IMP_Encoder_RegisterChn(%d, %d) error: %d\n",
+		ret = IMP_Encoder_RegisterChn(chn[i].index, chn[i].index);
+		if (ret < 0) {
+			IMP_LOG_ERR(TAG, "IMP_Encoder_RegisterChn(%d, %d) error: %d\n",
 						chn[i].index, chn[i].index, ret);
-				return -1;
-			}
+			return -1;
+		}
+
+		/* H-skip black enhance. hSkipAttr above is already configured but
+		 * bBlackEnhance was left at 0, so the whole H-skip block had no
+		 * effect. Enabling it lets the encoder drop frames it judges fully
+		 * black/static, which is most of a night scene. */
+		if (config.HSKIP_BLACK_ENHANCE) {
+			ret = IMP_Encoder_SetChnHSkipBlackEnhance(chn[i].index, 1);
+			if (ret < 0)
+				IMP_LOG_ERR(TAG, "IMP_Encoder_SetChnHSkipBlackEnhance(%d) failed: %d\n",
+							chn[i].index, ret);
+			else
+				printf("\t\tHSkipBlackEnhance enabled\n");
+		}
+
+		/* Encoder-side denoise. Must be set here, at channel creation: the
+		 * SDK documents that `enable` cannot be changed once set, only dnType.
+		 * This is aimed squarely at the night problem — with no working IR
+		 * illuminator the ISP sits at 103-128 dB analog gain and hands the
+		 * encoder amplified noise, which is what overruns the night bitrate
+		 * cap once QP is pinned at max. */
+		if (config.DENOISE) {
+			IMPEncoderAttrDenoise dn;
+			memset(&dn, 0, sizeof(dn));
+			dn.enable = 1;
+			dn.dnType = config.DENOISE_TYPE;
+			dn.dnIQp = config.DENOISE_IQP;
+			dn.dnPQp = config.DENOISE_PQP;
+			ret = IMP_Encoder_SetChnDenoise(chn[i].index, &dn);
+			if (ret < 0)
+				IMP_LOG_ERR(TAG, "IMP_Encoder_SetChnDenoise(%d) failed: %d\n",
+							chn[i].index, ret);
+			else
+				printf("\t\tDenoise enabled (type=%d iqp=%d pqp=%d)\n",
+						dn.dnType, dn.dnIQp, dn.dnPQp);
+		}
+
 		}
 	}
 	printf("ENCODER IS RUNNING SUCCESSFULLY! \n");
