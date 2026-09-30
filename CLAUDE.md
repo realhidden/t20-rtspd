@@ -58,8 +58,18 @@ Parsed by the handler in `imp-common.c` (`app_config_parse`), defaults set in
 the same function. Unknown keys return 1 (ignored) — other daemons share the
 file (`[telemetry]` belongs to the external client daemon). Camera name comes
 from `/system/sdcard/config/cameraname` (legacy: `/system/sdcard/cameraname`)
-and is sanitized to `[A-Za-z0-9_-]` because it is interpolated into a
-`system()` mDNS command — keep that sanitization.
+and is sanitized to `[A-Za-z0-9_-]` — keep that sanitization. It is
+interpolated into the `/status` JSON body and the telemetry headers, and the
+daemon runs as root.
+
+There is no mDNS responder. `main.cpp` used to shell out to
+`/system/sdcard/bin/mDNSResponder`, which has never existed on any deployed
+card, passing `-b/-P/-t/-x` flags that the only responder in the tree
+(`t20/client/mdns_responder.c`, which accepts just `-n` and `-p`) does not
+support. Home Assistant discovers cameras by polling the server's
+`/api/cameras`; its zeroconf handler is kept only for compatibility. The dead
+call and the matching `fixMdnsName()` in the client were removed. Do not
+reintroduce them without a working, installed responder.
 
 ## Key Constraints
 

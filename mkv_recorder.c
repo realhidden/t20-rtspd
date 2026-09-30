@@ -35,6 +35,7 @@ static int g_got_extradata = 0;
 static int64_t g_chunk_start_time = 0;  /* seconds since epoch */
 static int64_t g_frame_count = 0;
 static int64_t g_first_pts = -1;  /* chunk origin: first video IDR PTS (µs), shared by audio */
+static int64_t g_last_relative_ts = -1; /* last video PTS written, keeps DTS strictly monotonic */
 static int g_pkt_duration = 0;  /* pre-computed frame duration in stream time_base */
 
 static uint8_t *g_frame_buf = NULL;
@@ -75,6 +76,7 @@ static int open_new_chunk(void)
 	 * set g_first_pts to an audio timestamp before the video thread
 	 * establishes the true baseline. */
 	g_first_pts = -1;
+	g_last_relative_ts = -1;
 	g_frame_count = 0;
 
 	/* Check disk usage (cached — refresh every 30s) */
@@ -118,8 +120,19 @@ static int open_new_chunk(void)
 	g_video_stream->codecpar->width = g_config.width;
 	g_video_stream->codecpar->height = g_config.height;
 
-	g_video_stream->time_base.num = g_config.fps_den;
-	g_video_stream->time_base.den = g_config.fps_num;
+	/* Use a microsecond time base rather than 1/fps.
+	 *
+	 * The frame rate changes at runtime -- apply_night_encoding() switches
+	 * the encoder between the day and night rates -- but the container's
+	 * time base was fixed from the configured day rate at open time. Rescaling
+	 * real encoder timestamps into a 1/fps base therefore produced duplicate
+	 * DTS values at the transition, which ffmpeg rejects outright:
+	 *   "Application provided invalid, non monotonically increasing dts: 1 >= 1"
+	 * A non-monotonic container is what breaks seeking and playback in some
+	 * players, so keep microseconds and let the muxer derive everything.
+	 */
+	g_video_stream->time_base.num = 1;
+	g_video_stream->time_base.den = 1000000;
 
 	/* Set extradata (SPS + PPS) if available */
 	if (g_got_extradata && g_sps_data && g_pps_data) {
@@ -189,10 +202,11 @@ static int open_new_chunk(void)
 	time(&now);
 	g_chunk_start_time = (int64_t)now;
 
-	/* Pre-compute frame duration in stream time_base */
-	g_pkt_duration = av_rescale_q(1,
-			(AVRational){g_config.fps_den, g_config.fps_num},
-			g_video_stream->time_base);
+	/* Frame duration in the microsecond time base, from the configured rate.
+	 * This is only a nominal hint for the muxer; PTS come from the encoder's
+	 * real timestamps below, so a runtime rate change stays accurate. */
+	g_pkt_duration = g_config.fps_num > 0 ?
+			1000000 * g_config.fps_den / g_config.fps_num : 0;
 
 	return 0;
 }
@@ -213,6 +227,7 @@ static void close_current_chunk(void)
 	g_video_stream = NULL;
 	g_audio_stream = NULL;
 	g_first_pts = -1;
+	g_last_relative_ts = -1;
 }
 
 /* Single pass: detect IDR and cache SPS/PPS if this is an IDR frame.
@@ -392,9 +407,15 @@ int mkv_recorder_write_frame(IMPEncoderStream *stream)
 
 	int64_t relative_ts = encoder_ts - g_first_pts;
 
-	/* Convert microseconds to stream time_base */
-	AVRational us_tb = {1, 1000000};
-	pkt.pts = av_rescale_q(relative_ts, us_tb, g_video_stream->time_base);
+	/* The stream time base is already microseconds, so this is exact -- no
+	 * rescaling and no rounding. Guard monotonicity anyway: a frame that
+	 * arrives with a timestamp at or before its predecessor would otherwise
+	 * write a duplicate DTS and take the whole chunk down with it. */
+	if (relative_ts <= g_last_relative_ts)
+		relative_ts = g_last_relative_ts + 1;
+	g_last_relative_ts = relative_ts;
+
+	pkt.pts = relative_ts;
 	pkt.dts = pkt.pts;
 	pkt.duration = g_pkt_duration;
 

@@ -84,11 +84,11 @@ int main(void)
 				size_t len = strlen(g_camera_name);
 				while (len > 0 && (g_camera_name[len-1] == '\n' || g_camera_name[len-1] == '\r'))
 					g_camera_name[--len] = '\0';
-				/* Sanitize to [A-Za-z0-9_-]. This value is later interpolated
-				 * unsubstituted into a system() shell command (mDNS announce)
-				 * and into the /status JSON body, so any other character —
-				 * quotes, ';', '$', backticks, etc. — is a command-injection
-				 * vector (the daemon runs as root). Filter in place. */
+				/* Sanitize to [A-Za-z0-9_-]. This value is interpolated into
+				 * the /status JSON body and the telemetry headers, so any
+				 * other character — quotes, ';', '$', backticks, etc. — is
+				 * an injection vector (the daemon runs as root). Filter in
+				 * place. */
 				size_t w = 0;
 				for (size_t i = 0; i < len; i++) {
 					char c = g_camera_name[i];
@@ -209,16 +209,15 @@ int main(void)
 		else
 			printf("[main] HTTP snapshot server started on port %d\n", config.http_port);
 
-		/* Restart mDNS to advertise snapshot URL in TXT records */
-		char mdnsCmd[512];
-		snprintf(mdnsCmd, sizeof(mdnsCmd),
-			"killall mDNSResponder 2>/dev/null; "
-			"sleep 1; "
-			"/system/sdcard/bin/mDNSResponder -b -P /run/mdns-responder.pid "
-			"-n %s -t _rtsp._tcp -p %d "
-			"-x path=/snapshot -x name=%s -x id=%s 2>/dev/null &",
-			g_camera_name, config.http_port, g_camera_name, g_camera_name);
-		system(mdnsCmd);
+		/* No mDNS advertise here. It referenced
+		 * /system/sdcard/bin/mDNSResponder, a binary that has never existed
+		 * on any deployed card, and it passed -b/-P/-t/-x which the only
+		 * responder in the tree (t20/client/mdns_responder.c) does not
+		 * support -- it takes just -n and -p. Home Assistant does not use it:
+		 * the integration discovers cameras by polling the server's
+		 * /api/cameras, and its zeroconf handler is marked "kept for
+		 * compatibility". The shell-out could never have worked and HA never
+		 * depended on it. */
 	}
 
 	/* Step 7: Start receiving encoded frames */

@@ -557,8 +557,15 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->AUTONIGHT_IR_CHECK_GRACE_S = 20;
 	/* Autonight: built-in photosensitive detection */
 	config->AUTONIGHT_ENABLED = 0;
-	config->AUTONIGHT_NIGHT_THRESH = 1200000;
-	config->AUTONIGHT_DAY_THRESH = 930000;
+	/* Calibrated against the EV this ISP actually reports, not the values
+	 * that shipped in older configs (2000000/8000000, which sit an order of
+	 * magnitude too high and mean night never engages). Measured on the test unit
+	 * under IR-less darkness: ev 1030100..1125510 with aGain pinned at its
+	 * ceiling of 78. So night must trigger below ~1.03M and day must release
+	 * below that, with hysteresis in between. Re-measure with
+	 * EV_REPORT_S if the scene changes. */
+	config->AUTONIGHT_NIGHT_THRESH = 1000000;
+	config->AUTONIGHT_DAY_THRESH = 800000;
 	config->AUTONIGHT_IR_LED_THRESH = 3000000;
 	config->AUTONIGHT_IR_LED_OFF = 0;
 	config->AUTONIGHT_INTERVAL = 3;
@@ -1164,6 +1171,32 @@ void *sample_soft_photosensitive_thread(void *p)
 	printf("[autonight] Starting: night_thresh=%d day_thresh=%d ir_led_thresh=%d interval=%ds ir_led_off=%d\n",
 			night_thresh, day_thresh, ir_led_thresh, interval, ir_led_off);
 
+	/* Drop any fault left behind by a previous run.
+	 *
+	 * /var/run is a tmpfs that survives a daemon restart, so a fault
+	 * published before a restart stays on disk and keeps being reported to
+	 * telemetry forever. The IR health check only publishes on a *rising*
+	 * edge, so it will not clear a stale tag by itself: observed on this
+	 * unit as an "ir_led" fault dated hours before the run that was supposed
+	 * to own it, with no IR event anywhere in the current log. Faults are
+	 * re-established by this run if they are still real. */
+	{
+		FILE *stale = fopen("/var/run/hwstatus", "r");
+		if (stale) {
+			char tag[64];
+			if (fgets(tag, sizeof(tag), stale)) {
+				char *nl = strpbrk(tag, "\r\n");
+				if (nl) *nl = '\0';
+				if (tag[0]) {
+					printf("[hwfault] clearing stale fault '%s' from a previous run\n",
+							tag);
+					clear_hw_fault(tag);
+				}
+			}
+			fclose(stale);
+		}
+	}
+
 	while (g_soft_ps_running) {
 		IMPISPEVAttr expAttr;
 		int ret = IMP_ISP_Tuning_GetEVAttr(&expAttr);
@@ -1250,7 +1283,29 @@ void *sample_soft_photosensitive_thread(void *p)
 		if (isp_night < 0)
 			isp_night = (pmode == IMPISP_RUNNING_MODE_NIGHT) ? 1 : 0;
 
-		/* Night/day ISP mode switching */
+		/* Night/day ISP mode switching.
+	 *
+	 * Sanity-check the thresholds against the EV actually being produced.
+	 * The EV scale on this ISP is undocumented and the shipping values in
+	 * older configs (night>8000000, day<2000000) sit an order of magnitude
+	 * above anything it reports -- night then never fires, the camera stays
+	 * in DAY mode with the IR-cut still in, and the night bitrate overruns
+	 * its cap. Symptom is silent, so say so in the log rather than leaving it
+	 * to be discovered by hand. */
+	{
+		static int warned = 0;
+		if (!warned && ev_all_max > 0 && ev_all_max < night_thresh &&
+				!isp_night) {
+			printf("[autonight] WARNING: night_thresh=%d is above the highest "
+					"EV seen (%d). Night mode and the IR-cut/IR-LED switch will "
+					"never engage; lower NIGHT_THRESH (see "
+					"docs/encoder-tuning.md for the observed EV range).\n",
+					night_thresh, ev_all_max);
+			warned = 1;
+		}
+	}
+
+	/* Night/day ISP mode switching */
 		if (avgExp > night_thresh) {
 			if (pmode != IMPISP_RUNNING_MODE_NIGHT) {
 				printf("[%s] avgExp %d > %d -> NIGHT\n",
