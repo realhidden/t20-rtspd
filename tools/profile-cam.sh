@@ -64,9 +64,14 @@ NR==FNR { u[$1]=$3; s[$1]=$4; vcs[$1]=$5; ivcs[$1]=$6; mf[$1]=$7; name[$1]=$2; n
     pc = (dt*100.0)/TICKS
     pu = (du*100.0)/TICKS
     ps = (ds*100.0)/TICKS
+    # Clamp at 0: a thread that exits mid-window can otherwise produce a
+    # nonsensical negative delta, which reads as a bug in the tool.
+    dv = $5 - vcs[$1]; if (dv < 0) dv = 0
+    di = $6 - ivcs[$1]; if (di < 0) di = 0
+    dm = $7 - mf[$1];  if (dm < 0) dm = 0
     printf "%-8s %-16s cpu=%6.2f%%  usr=%6.2f%%  sys=%6.2f%%  (%s)  ctxsw=%-6d minflt=%d\n",
            $1, name[$1], pc, pu, ps, (ps > pu ? "KERNEL" : (pu > ps*2 ? "userspace" : "mixed")), \
-           ($5 - vcs[$1]) + ($6 - ivcs[$1]), $7 - mf[$1]
+           dv + di, dm
 }
 ' /tmp/.prof_a /tmp/.prof_b
 
