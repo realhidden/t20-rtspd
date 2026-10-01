@@ -1416,7 +1416,7 @@ void *sample_soft_photosensitive_thread(void *p)
 			ev_samples = 0;
 		}
 
-		/* EMA with fixed the test unit = 1/4 (shift-based, no division) */
+		/* EMA with fixed smoothing factor = 1/4 (shift-based, no division) */
 		if (!avgExp_init) {
 			avgExp = expAttr.ev;
 			avgExp_init = 1;
