@@ -482,6 +482,16 @@ static int handler(void* user, const char* section, const char* name, const char
 		pconfig->AUTONIGHT_IR_LED_OFF = atoi(value);
 	} else if (MATCH("autonight", "INTERVAL")){
 		pconfig->AUTONIGHT_INTERVAL = atoi(value);
+	} else if (MATCH("darkskip", "ENABLED")){
+		pconfig->DARK_SKIP_ENABLED = atoi(value);
+	} else if (MATCH("darkskip", "EV")){
+		pconfig->DARK_SKIP_EV = atoi(value);
+	} else if (MATCH("darkskip", "AGAIN")){
+		pconfig->DARK_SKIP_AGAIN = atoi(value);
+	} else if (MATCH("darkskip", "MIN_AGE")){
+		pconfig->DARK_SKIP_MIN_AGE = atoi(value);
+	} else if (MATCH("darkskip", "RATIO")){
+		pconfig->DARK_SKIP_RATIO = atoi(value);
 	} else if (MATCH("autonight", "EV_REPORT_S")){
 		pconfig->AUTONIGHT_EV_REPORT_S = atoi(value);
 	} else if (MATCH("autonight", "IR_CHECK_GRACE_S")){
@@ -571,6 +581,11 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->AUTONIGHT_INTERVAL = 3;
 	config->AUTONIGHT_EV_REPORT_S = 300;
 	config->AUTONIGHT_EV_VERBOSE = 0;
+	config->DARK_SKIP_ENABLED = 1;
+	config->DARK_SKIP_EV = 10000000;
+	config->DARK_SKIP_AGAIN = 120;
+	config->DARK_SKIP_MIN_AGE = 120;
+	config->DARK_SKIP_RATIO = 90;
 
 	if (ini_parse(ini_path, handler, config) < 0) {
 		printf("[config] Can't load %s\n", ini_path);
@@ -1101,6 +1116,131 @@ static void publish_hw_fault(const char *tag)
 	}
 }
 
+/* --- Dark-scene chunk skipping ---
+ *
+ * Some conditions make a recording worthless while still costing a full
+ * upload: the IR illuminator is dead, a lens cap is on, something is pressed
+ * against the lens, or the camera is simply aimed at nothing lit. This is a
+ * real case here -- the test unit's LED array does not illuminate, so every night
+ * chunk was ~400 kbps of near-black video (measured mean luma 3.6/255).
+ *
+ * The obvious test, "is the file small?", does not work. The encoder runs
+ * CBR, so it spends the bitrate budget whether or not there is anything to
+ * encode, and a black chunk still lands right at the cap. File size carries
+ * no brightness information at all.
+ *
+ * So use the ISP's exposure state, which the autonight thread already reads
+ * for night detection, making this free. With no light reaching the sensor
+ * the AE has nothing to expose for: analog gain pins at its ceiling and the
+ * EV value runs away. Measured on the test unit, daytime peaks near ev 1.1M with
+ * aGain in single digits, while a genuinely unlit scene runs past ev 30M
+ * with aGain pinned at the 128 ceiling. Requiring both keeps this from
+ * firing on an ordinary dark-but-exposed frame.
+ *
+ * This is a heuristic over ISP telemetry rather than a pixel measurement,
+ * deliberately: decoding a frame to measure luma would cost real CPU on a
+ * device where CPU is the scarce resource, and the AE state already encodes
+ * "the sensor is receiving no light" directly. It is also why this catches
+ * obstructions and lens caps, not only a dead illuminator.
+ */
+#define DARKSKIP_SAMPLES 512
+static struct {
+	int ev;
+	int again;
+	time_t t;
+} g_darkskip[DARKSKIP_SAMPLES];
+static int g_darkskip_head = 0;	/* next write slot */
+static int g_darkskip_count = 0;
+static pthread_mutex_t g_darkskip_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void darkskip_note_sample(int ev, int again)
+{
+	pthread_mutex_lock(&g_darkskip_lock);
+	g_darkskip[g_darkskip_head].ev = ev;
+	g_darkskip[g_darkskip_head].again = again;
+	g_darkskip[g_darkskip_head].t = time(NULL);
+	g_darkskip_head = (g_darkskip_head + 1) % DARKSKIP_SAMPLES;
+	if (g_darkskip_count < DARKSKIP_SAMPLES)
+		g_darkskip_count++;
+	pthread_mutex_unlock(&g_darkskip_lock);
+}
+
+int darkskip_range_is_dark(time_t range_start, time_t range_end)
+{
+	time_t oldest = 0;
+	int in_window = 0, dark = 0, i, n;
+
+	/* A chunk is only discarded when every sample covering its recording
+	 * window was dark, so a chunk spanning dusk keeps its usable footage
+	 * rather than being thrown away wholesale. The window is the chunk's own
+	 * start/end, not "the last N seconds": the uploader runs behind the
+	 * recorder, so judging a finished chunk against the current time would
+	 * test the wrong interval entirely. */
+	if (range_end <= range_start)
+		return 0;
+
+	pthread_mutex_lock(&g_darkskip_lock);
+	n = g_darkskip_count;
+	for (i = 0; i < n; i++) {
+		int idx = (g_darkskip_head - n + i + DARKSKIP_SAMPLES * 2)
+				% DARKSKIP_SAMPLES;
+		time_t t = g_darkskip[idx].t;
+		if (t < range_start || t > range_end)
+			continue;
+		if (oldest == 0)
+			oldest = t;
+		in_window++;
+		if (g_darkskip[idx].ev >= g_app_config->DARK_SKIP_EV &&
+				g_darkskip[idx].again >= g_app_config->DARK_SKIP_AGAIN)
+			dark++;
+	}
+	pthread_mutex_unlock(&g_darkskip_lock);
+
+	/* Require the sample history to reach back to the start of the chunk.
+	 *
+	 * Coverage is only checked at the *start*: every sample is timestamped as
+	 * it is taken, so by the time the uploader looks at a finished chunk the
+	 * newest sample is always "now", at or after the chunk's mtime.
+	 * Requiring coverage of the end as well would never be satisfiable.
+	 *
+	 * The start check needs one poll interval of slack. Samples only exist
+	 * every AUTONIGHT_INTERVAL seconds, so the earliest sample inside the
+	 * window lands up to one interval *after* the chunk began; demanding
+	 * oldest <= range_start exactly made the outcome depend on where the poll
+	 * timer happened to fall relative to the chunk boundary. Observed on
+	 * the test unit as chunks of identical darkness being randomly skipped or
+	 * uploaded. One interval of slack is the whole resolution: it proves the
+	 * history spans the chunk without depending on that alignment.
+	 *
+	 * A fresh daemon with a short history still fails here and uploads
+	 * normally, so nothing is discarded before the evidence exists. */
+	{
+		int slack = g_app_config->AUTONIGHT_INTERVAL > 0 ?
+				g_app_config->AUTONIGHT_INTERVAL : 5;
+		if (in_window == 0 || oldest > range_start + slack)
+			return 0;
+	}
+
+	/* Require a minimum dark run so a momentary exposure excursion, or a
+	 * very short clip, is never discarded on the strength of a few
+	 * samples. */
+	if (range_end - range_start < g_app_config->DARK_SKIP_MIN_AGE)
+		return 0;
+
+	/* Judge on the fraction of the window that was dark, not on every
+	 * sample individually. The sample nearest a chunk boundary can catch
+	 * the AE mid-convergence after a night switch; observed on the test unit as a
+	 * single bright sample in 64 on a chunk that was black throughout, which
+	 * was enough to veto the skip. A high threshold still keeps any chunk
+	 * with a meaningful stretch of real light. */
+	{
+		int ratio = g_app_config->DARK_SKIP_RATIO;
+		if (ratio < 1) ratio = 1;
+		if (ratio > 100) ratio = 100;
+		return dark * 100 >= in_window * ratio;
+	}
+}
+
 static void clear_hw_fault(const char *tag)
 {
 	(void)tag;
@@ -1250,6 +1390,11 @@ void *sample_soft_photosensitive_thread(void *p)
 			if (expAttr.dgain > ev_win_max_dgain) ev_win_max_dgain = expAttr.dgain;
 		}
 		ev_samples++;
+
+		/* Feed the dark-scene skip. Uses the raw per-sample exposure, not
+		 * the EMA and not the post-switch state, so it reflects what the
+		 * sensor actually saw at this instant. */
+		darkskip_note_sample(expAttr.ev, expAttr.again);
 
 		ev_report_in -= interval;
 		if (ev_report_in <= 0) {

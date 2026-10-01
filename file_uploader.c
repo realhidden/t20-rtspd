@@ -10,8 +10,10 @@
 #include <net/if.h>
 #include <arpa/inet.h>
 #include <time.h>
+#include <errno.h>
 
 #include "file_uploader.h"
+#include "imp-common.h"
 #include "https_client.h"
 
 #define TAG "file_uploader"
@@ -164,6 +166,33 @@ typedef struct {
 	long size;
 } file_entry_t;
 
+/* Chunk names are YYYYMMDD_HHMMSS.mkv (see mkv_recorder.c), so the start of
+ * the recording window is recoverable from the name. Returns 0 if the name
+ * does not match. Interpreting it with mktime() is correct because the
+ * recorder built the same string from localtime(). */
+static time_t chunk_start_time(const char *name)
+{
+	int y, mo, d, h, mi, sec;
+	if (sscanf(name, "%4d%2d%2d_%2d%2d%2d", &y, &mo, &d, &h, &mi, &sec) != 6)
+		return 0;
+	if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31)
+		return 0;
+	if (h > 23 || mi > 59 || sec > 60)
+		return 0;
+
+	struct tm tm;
+	memset(&tm, 0, sizeof(tm));
+	tm.tm_year = y - 1900;
+	tm.tm_mon = mo - 1;
+	tm.tm_mday = d;
+	tm.tm_hour = h;
+	tm.tm_min = mi;
+	tm.tm_sec = sec;
+	tm.tm_isdst = -1;	/* let the C library resolve DST */
+
+	return mktime(&tm);
+}
+
 static int compare_mtime(const void *a, const void *b)
 {
 	const file_entry_t *fa = (const file_entry_t *)a;
@@ -229,6 +258,7 @@ static int scan_completed_files(const char *dir, file_entry_t *files, int max_fi
 static void *file_uploader_thread(void *arg)
 {
 	int upload_count = 0;
+int skipped_count = 0;
 	(void)arg;
 
 	if (g_config.adaptive_rate)
@@ -255,6 +285,31 @@ static void *file_uploader_thread(void *arg)
 			char filepath[512];
 			snprintf(filepath, sizeof(filepath), "%s/%s",
 					g_config.scan_dir, files[i].name);
+
+			/* Discard chunks that recorded nothing usable -- dead
+			 * illuminator, lens cap, lens obstruction, or a camera aimed at
+			 * nothing lit. These cost a full upload to store a black
+			 * picture, so drop them and reclaim the card space.
+			 *
+			 * The test covers the chunk's own recording window, taken from
+			 * the start time encoded in the filename and the file's mtime,
+			 * and only fires when every exposure sample in that window was
+			 * dark. Anything with usable footage is uploaded normally. */
+			if (g_config.dark_skip_enabled) {
+				time_t cstart = chunk_start_time(files[i].name);
+				if (cstart > 0 &&
+						darkskip_range_is_dark(cstart, files[i].mtime)) {
+					printf("[%s] SKIP dark chunk %s (%.0fs, no usable "
+							"image -- illuminator/lens?)\n",
+							TAG, files[i].name,
+							(double)(files[i].mtime - cstart));
+					skipped_count++;
+					if (unlink(filepath) != 0)
+						printf("[%s] Failed to delete skipped %s: %s\n",
+								TAG, filepath, strerror(errno));
+					continue;
+				}
+			}
 
 			/* Build filename with camera name prefix */
 			char dest_filename[320];
@@ -380,7 +435,8 @@ static void *file_uploader_thread(void *arg)
 		}
 	}
 
-	printf("[%s] Upload thread exiting (uploaded %d files)\n", TAG, upload_count);
+	printf("[%s] Upload thread exiting (uploaded %d files, skipped %d dark)\n",
+			TAG, upload_count, skipped_count);
 	return NULL;
 }
 

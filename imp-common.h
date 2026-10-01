@@ -247,6 +247,40 @@ typedef struct{
 	/* Log every individual EV sample. Off by default: the original build
 	 * printed 10000 of them, which buried everything else in the log. */
 	int AUTONIGHT_EV_VERBOSE;
+	/* Dark-scene chunk skipping.
+	 *
+	 * A camera with a dead illuminator, a lens cap, or something pressed
+	 * against the lens records video that carries no information but still
+	 * costs a full upload. Skip those chunks.
+	 *
+	 * The encoder runs CBR, so this cannot be judged from file size -- a
+	 * black frame still spends the whole bitrate budget (measured: a
+	 * near-black 1080p chunk came in at 402 kbps against a 380 kbps cap).
+	 * Instead use the ISP's own exposure state, which the autonight thread
+	 * already reads for free: with no light reaching the sensor the AE
+	 * saturates, so analog gain pins at its ceiling and EV runs away. */
+	int DARK_SKIP_ENABLED;
+	/* EV above this counts as "no light". Daytime on this ISP peaks around
+	 * 1.1M; a genuinely unlit scene runs past 30M. Default sits between. */
+	int DARK_SKIP_EV;
+	/* Analog gain at/above this counts as saturated. The AE ceiling here is
+	 * 128; normal day use is single digits to ~78. */
+	int DARK_SKIP_AGAIN;
+	/* Consecutive dark samples required before a chunk is judged dark. The
+	 * autonight thread polls every AUTONIGHT_INTERVAL seconds, so this
+	 * debounces dusk transitions and momentary exposure excursions. */
+	/* Minimum seconds a chunk must have been recording for the skip to
+	 * apply. Guards against discarding a short clip that is legitimately
+	 * dark but might still be the only footage of an event. */
+	int DARK_SKIP_MIN_AGE;
+	/* Percentage of the chunk's exposure samples that must be dark.
+	 *
+	 * Not 100: the sample nearest a chunk boundary can catch the AE still
+	 * converging after a night switch, and one bright sample in 64 was
+	 * enough to veto the skip on a chunk that was black throughout. Requiring
+	 * a high fraction skips genuinely unlit chunks while still keeping any
+	 * chunk with a meaningful stretch of real light. */
+	int DARK_SKIP_RATIO;
 	/* Smart mode only.
 	 * Color2Grey makes the encoder drop the chroma planes entirely and emit
 	 * monochrome. At night this camera has no working IR illuminator, so the
@@ -315,6 +349,18 @@ void *sample_soft_photosensitive_thread(void *p);
 extern "C" {
 #endif
 extern volatile int g_night_mode;
+
+/* Dark-scene skip, shared between the autonight thread (which samples the
+ * ISP) and the uploader (which decides whether a chunk is worth sending).
+ *
+ * darkskip_note_sample() is called once per autonight poll with the ISP's
+ * exposure state. darkskip_range_is_dark(start, end) answers whether a chunk
+ * recorded over [start, end] carried no usable image and should be discarded.
+ *
+ * A chunk is only judged dark if *every* sample in its window was dark, so a
+ * chunk spanning dusk is still uploaded. */
+void darkskip_note_sample(int ev, int again);
+int darkskip_range_is_dark(time_t range_start, time_t range_end);
 void apply_night_encoding(int night);
 #ifdef __cplusplus
 }

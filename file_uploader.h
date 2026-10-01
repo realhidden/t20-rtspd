@@ -14,6 +14,10 @@ typedef struct {
 	int scan_interval_s;
 	int buffer_in_memory;
 	int adaptive_rate;        /* 1 = enable adaptive rate limiting */
+	/* Discard chunks that recorded no usable image (see darkskip in
+	 * imp-common.c). The thresholds live in the app config; this is just the
+	 * on/off switch, passed through so the uploader can gate the check. */
+	int dark_skip_enabled;
 } file_uploader_config_t;
 
 int file_uploader_init(const file_uploader_config_t *config);
