@@ -1,7 +1,7 @@
 # Evaluating an open-source replacement for the IMP H.264 encoder
 
 **Status: investigated, not recommended. The premise doesn't hold on this SoC.**
-Written 2026-09-28 while profiling `the test unit`.
+Written 2026-09-28 while profiling a test unit.
 
 ## The question
 
@@ -18,7 +18,7 @@ the hardware path we already use. Every measurement below points the same way.
 
 ## Where the CPU actually is
 
-From `tools/profile-cam.sh` on `the test unit` (45s window, steady state):
+From `tools/profile-cam.sh` on a T20 test unit (45s window, steady state):
 
 | Thread | CPU | |
 |---|---|---|

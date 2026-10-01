@@ -194,7 +194,7 @@ int sample_system_exit()
  * hardware scaler to reconcile a smaller encode size against a 1920x1080 crop,
  * libimp falls back to a software scale in userspace.
  *
- * That software scale is what the 24% was. Measured on the test unit: encoding at
+ * That software scale is what the 24% was. Measured on a T20: encoding at
  * 1280x720 costs Encoder-0 24.18%, but encoding at the sensor's native
  * 1920x1080 -- where no scale is needed, and 2.25x more pixels -- costs only
  * 2.24%. So the cost is the downscale, not the encoding.
@@ -569,7 +569,7 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 	config->AUTONIGHT_ENABLED = 0;
 	/* Calibrated against the EV this ISP actually reports, not the values
 	 * that shipped in older configs (2000000/8000000, which sit an order of
-	 * magnitude too high and mean night never engages). Measured on the test unit
+	 * magnitude too high and mean night never engages). Measured on a T20
 	 * under IR-less darkness: ev 1030100..1125510 with aGain pinned at its
 	 * ceiling of 78. So night must trigger below ~1.03M and day must release
 	 * below that, with hysteresis in between. Re-measure with
@@ -1121,7 +1121,7 @@ static void publish_hw_fault(const char *tag)
  * Some conditions make a recording worthless while still costing a full
  * upload: the IR illuminator is dead, a lens cap is on, something is pressed
  * against the lens, or the camera is simply aimed at nothing lit. This is a
- * real case here -- the test unit's LED array does not illuminate, so every night
+ * real case here -- the test unit's LED array does not illuminate, so every
  * chunk was ~400 kbps of near-black video (measured mean luma 3.6/255).
  *
  * The obvious test, "is the file small?", does not work. The encoder runs
@@ -1132,7 +1132,7 @@ static void publish_hw_fault(const char *tag)
  * So use the ISP's exposure state, which the autonight thread already reads
  * for night detection, making this free. With no light reaching the sensor
  * the AE has nothing to expose for: analog gain pins at its ceiling and the
- * EV value runs away. Measured on the test unit, daytime peaks near ev 1.1M with
+ * EV value runs away. Measured on a T20, daytime peaks near ev 1.1M with
  * aGain in single digits, while a genuinely unlit scene runs past ev 30M
  * with aGain pinned at the 128 ceiling. Requiring both keeps this from
  * firing on an ordinary dark-but-exposed frame.
@@ -1208,7 +1208,7 @@ int darkskip_range_is_dark(time_t range_start, time_t range_end)
 	 * window lands up to one interval *after* the chunk began; demanding
 	 * oldest <= range_start exactly made the outcome depend on where the poll
 	 * timer happened to fall relative to the chunk boundary. Observed on
-	 * the test unit as chunks of identical darkness being randomly skipped or
+	 * a test unit as chunks of identical darkness being randomly skipped or
 	 * uploaded. One interval of slack is the whole resolution: it proves the
 	 * history spans the chunk without depending on that alignment.
 	 *
@@ -1229,7 +1229,7 @@ int darkskip_range_is_dark(time_t range_start, time_t range_end)
 
 	/* Judge on the fraction of the window that was dark, not on every
 	 * sample individually. The sample nearest a chunk boundary can catch
-	 * the AE mid-convergence after a night switch; observed on the test unit as a
+	 * the AE mid-convergence after a night switch; observed on a T20 as a
 	 * single bright sample in 64 on a chunk that was black throughout, which
 	 * was enough to veto the skip. A high threshold still keeps any chunk
 	 * with a meaningful stretch of real light. */

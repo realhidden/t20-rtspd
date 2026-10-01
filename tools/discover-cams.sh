@@ -9,7 +9,8 @@
 #                  firmware, but listed so they are not mistaken for T20s.
 #
 # Usage: ./discover-cams.sh [cidr-prefix]
-#   default scans 192.168.0.1-192.168.3.254 (the /22 shared by en0+en1).
+#   default scans 192.168.0.1-192.168.3.254; override with an argument, e.g.
+#   ./discover-cams.sh 10.0 to scan a different /22.
 
 set -u
 BASE="${1:-192.168}"

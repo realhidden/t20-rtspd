@@ -2,9 +2,15 @@
 # Run a command on a Dafang camera over a raw telnet session driven by nc.
 # (The macOS `telnet` binary is blocked by a local firewall rule; nc works.)
 # Usage: cam.sh <ip> "command"
+#
+# The camera root password is read from the environment and has no default:
+#   export CAM_PASS='...'
+#   ./tools/cam.sh 192.168.x.y "command"
+#
+# Do not commit a password here. This repo is public.
 IP="${1:?usage: cam.sh <ip> <cmd>}"
 CMD="${2:?usage: cam.sh <ip> <cmd>}"
-PW="${CAM_PASS:-REDACTED}"
+PW="${CAM_PASS:?CAM_PASS must be set (camera root password)}"
 
 EXPFILE="$(mktemp)"
 cat > "$EXPFILE" <<'EOF'

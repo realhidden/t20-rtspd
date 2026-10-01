@@ -1,6 +1,6 @@
 # Encoder tuning on T20 / JXF23
 
-Measured on `the test unit` (192.168.3.192) with `tools/profile-cam.sh` for CPU and
+Measured on a test unit (T20/JXF23 1920x1080) with `tools/profile-cam.sh` for CPU and
 actual chunk sizes from the uploader log for bytes. All figures are steady
 state, daytime, 3 fps, excluding the first chunk after a restart while the AE
 settles.
@@ -65,7 +65,7 @@ CPU and produced chunks around 17.1 MB. Two things changed:
   illuminator (no `/dev/pwm` in this firmware, and no PWM channel or GPIO
   moves the sensor), so the AE sits at 103-128 dB of analog gain. That noise
   is what pushes the night bitrate over its cap and it is why the ISP
-  denoise exists. `the test unit` reports this as a hardware fault via
+  denoise exists. The test unit reports this as a hardware fault via
   `/var/run/hwstatus`.
 
 ## What did not work, so it is not worth re-trying
