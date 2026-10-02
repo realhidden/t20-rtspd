@@ -614,8 +614,29 @@ int app_config_parse(const char *ini_path, app_config_t *config)
 			printf("[config] WARNING: output %.2f fps exceeds sensor %.2f fps — "
 					"the extra frames cannot exist\n", out_fps, sensor_fps);
 		else if (out_fps > 0 && out_fps < sensor_fps)
+			/* Corrected after measurement. This used to claim the skipped
+			 * frames "are still produced and cost CPU to scale", which is
+			 * wrong at native resolution: with the encode size equal to the
+			 * sensor size there is no scaler in the path, so a frame the
+			 * encoder never sees costs almost nothing.
+			 *
+			 * Measured 60s windows at 1920x1080/5fps output, sensor 10 vs 5:
+			 *   Encoder-0      4.97% -> 4.80% (mean of 4.75, 4.85)
+			 *   Framesource-0  0.18% -> 0.18% (0.08 on a repeat run)
+			 *   total          5.52% -> 5.24%
+			 * so about 0.2-0.3pp, 4-5% of total. Framesource-0's context
+			 * switches halve (606 -> 306) with the frame rate, confirming
+			 * the sensor really does stop producing the skipped frames --
+			 * there is just almost no work in them to save.
+			 *
+			 * Lowering SENSOR_FPS_NUM to match the output rate is still
+			 * worth doing: it is free, and at a non-native encode size, or
+			 * with the scaler enabled, the skipped frames would cost real
+			 * work. */
 			printf("[config] Note: encoding %.2f of %.2f sensor fps; the skipped "
-					"sensor frames are still produced and cost CPU to scale\n",
+					"sensor frames are dropped by the sensor and cost little at "
+					"native size (measured ~0.2-0.3pp CPU). Consider matching "
+					"SENSOR_FPS_NUM to RATENUM.\n",
 					out_fps, sensor_fps);
 	}
 	printf("[config] Recording: enabled=%d dir=%s chunk=%ds threshold=%d%%\n",
